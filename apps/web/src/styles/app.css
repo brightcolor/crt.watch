@@ -15,5 +15,7 @@
 @import "./frontpage.css";
 @import "./responsive.css";
 
-/* The workbench layer loads last: it carries the house handwriting. */
+/* The house handwriting, last in line: the workbench for the application,
+   the public variant for the front page. */
 @import "./werkbank.css";
+@import "./auftritt.css";

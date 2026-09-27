@@ -34,6 +34,7 @@ The codebase is deliberately simple and compact. It also shows the signs of a fa
 
 - Backend: Node.js with TypeScript and Express
 - Frontend: React with Vite, Bootstrap 5.3/AdminLTE, Bootstrap Icons, and a design token layer that defines every radius, tint, control size and type step in one place
+- Look: the bright color house style. `werkbank.css` dresses the application — onyx rail, paper ground with white panels, yellow as the action colour, Anton in capitals on headings — and `auftritt.css` dresses the public front page with hard edges and full colour fields. Anton, Atkinson Hyperlegible and IBM Plex Mono ship with the image; nothing is fetched from a font service at run time
 - Database: SQLite via better-sqlite3 (WAL mode, incremental page writes) through a small repository layer, with a structure that can later be adapted for PostgreSQL
 - Worker: in-process scheduler with bounded concurrent checks
 - Addresses: the public surface lives at the root (`/`, `/login`, `/register`), the application under `/app`; the front page is rendered on the server so crawlers and first-time visitors receive content, not an empty div

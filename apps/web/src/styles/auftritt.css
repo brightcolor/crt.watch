@@ -1,0 +1,223 @@
+/* ---------------------------------------------------------------------------
+   bright color, public surface
+
+   The front page is not a workbench: it presents. The house draws that with
+   hard edges, two-pixel ink borders, full colour fields and a hard offset
+   instead of a soft shadow. Light only, no dark mode.
+
+   Everything inside .frontpage follows these rules; the application keeps the
+   workbench layer.
+   --------------------------------------------------------------------------*/
+
+.frontpage {
+  background: var(--bc-paper);
+  color: var(--bc-ink);
+}
+
+/* Square corners, ink edges, no soft shadows. */
+.frontpage .btn,
+.frontpage .frontpage-card,
+.frontpage .frontpage-strip > *,
+.frontpage .frontpage-visual,
+.frontpage .frontpage-command,
+.frontpage input,
+.frontpage select {
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.frontpage .frontpage-card,
+.frontpage .frontpage-strip > *,
+.frontpage .frontpage-visual,
+.frontpage .frontpage-command {
+  border: 2px solid var(--bc-ink);
+  background: #ffffff;
+}
+
+/* --- Head ---------------------------------------------------------------- */
+
+.frontpage .frontpage-nav {
+  border-bottom: 2px solid var(--bc-ink);
+  background: var(--bc-ink);
+  color: #ffffff;
+}
+
+.frontpage .frontpage-nav a,
+.frontpage .frontpage-brand { color: #ffffff; }
+.frontpage .frontpage-nav a:hover { color: var(--bc-yellow); }
+.frontpage .frontpage-brand {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  text-transform: lowercase;
+}
+
+/* --- Hero ---------------------------------------------------------------- */
+
+/* The opening line stands on cyan, the one band the house uses to open a page.
+   The band carries the words only: the demo panel below sits on paper, so the
+   colour field stays a band and does not become a wall. */
+.frontpage .frontpage-hero { background: var(--bc-paper); }
+
+.frontpage .frontpage-copy {
+  position: relative;
+  z-index: 0;
+  padding: 3rem 0;
+  color: var(--bc-deep, #05202a);
+}
+
+.frontpage .frontpage-copy::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: calc(50% - 50vw);
+  right: calc(50% - 50vw);
+  z-index: -1;
+  background: var(--bc-cyan);
+  border-bottom: 2px solid var(--bc-ink);
+}
+
+.frontpage .frontpage-hero h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .01em;
+  line-height: 1.06;
+  color: var(--bc-ink);
+}
+
+.frontpage .frontpage-hero .eyebrow,
+.frontpage .eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--bc-ink);
+}
+
+.frontpage .eyebrow::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  background: var(--bc-magenta);
+}
+
+.frontpage .frontpage-hero .muted,
+.frontpage .frontpage-hero p { color: var(--bc-deep, #05202a); }
+
+/* --- Buttons ------------------------------------------------------------- */
+
+/* The one call of the page is pink; everything else is an ink outline. Both
+   lift on a hard offset, never on a blur. */
+.frontpage .btn {
+  border-width: 2px;
+  border-color: var(--bc-ink);
+  font-weight: 700;
+  min-height: 48px;
+  transition: transform .12s ease, box-shadow .12s ease;
+}
+
+.frontpage .btn-primary {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: var(--bc-pink);
+  --bs-btn-border-color: var(--bc-ink);
+  --bs-btn-hover-color: #ffffff;
+  --bs-btn-hover-bg: var(--bc-pink-deep);
+  --bs-btn-hover-border-color: var(--bc-ink);
+  --bs-btn-active-bg: var(--bc-pink-deep);
+}
+
+.frontpage .btn-outline-secondary {
+  --bs-btn-color: var(--bc-ink);
+  --bs-btn-bg: #ffffff;
+  --bs-btn-border-color: var(--bc-ink);
+  --bs-btn-hover-color: #ffffff;
+  --bs-btn-hover-bg: var(--bc-ink);
+  --bs-btn-hover-border-color: var(--bc-ink);
+}
+
+.frontpage .btn:hover {
+  transform: translate(-2px, -2px);
+  box-shadow: 3px 3px 0 var(--bc-magenta);
+}
+
+/* --- Sections ------------------------------------------------------------ */
+
+.frontpage .frontpage-section h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  color: var(--bc-ink);
+}
+
+.frontpage .frontpage-card h3 {
+  font-weight: 700;
+  color: var(--bc-ink);
+}
+
+.frontpage .muted { color: #4a4a4a; }
+
+/* The tile row runs through the house colours in their fixed order: ink, cyan,
+   pink, yellow. Each tile carries the colour as a four-pixel top edge. */
+.frontpage .frontpage-strip > *:nth-child(1) { border-top: 4px solid var(--bc-ink); }
+.frontpage .frontpage-strip > *:nth-child(2) { border-top: 4px solid var(--bc-cyan); }
+.frontpage .frontpage-strip > *:nth-child(3) { border-top: 4px solid var(--bc-pink); }
+.frontpage .frontpage-strip > *:nth-child(4) { border-top: 4px solid var(--bc-yellow); }
+
+.frontpage .frontpage-card:nth-child(1) { border-top: 4px solid var(--bc-magenta); }
+.frontpage .frontpage-card:nth-child(2) { border-top: 4px solid var(--bc-cyan); }
+.frontpage .frontpage-card:nth-child(3) { border-top: 4px solid var(--bc-lime); }
+.frontpage .frontpage-card:nth-child(4) { border-top: 4px solid var(--bc-yellow); }
+
+/* --- The command line ---------------------------------------------------- */
+
+/* The install line is the page's one dark band: ink ground, mono type. */
+.frontpage .frontpage-command {
+  background: var(--bc-ink);
+  color: #ffffff;
+  font-family: var(--font-mono);
+  border-color: var(--bc-ink);
+}
+
+.frontpage .frontpage-command code,
+.frontpage .frontpage-command pre { color: #ffffff; }
+
+/* --- The demo panel ------------------------------------------------------ */
+
+.frontpage .frontpage-visual { background: #ffffff; }
+.frontpage .visual-row,
+.frontpage .visual-header {
+  border-radius: 0;
+  border: 1px solid var(--bc-ink);
+  background: var(--bc-paper);
+}
+
+.frontpage .visual-row > span:first-child {
+  border: 1px solid var(--bc-ink);
+  border-radius: 0;
+  font-weight: 700;
+  font-size: 11px;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+
+.frontpage .visual-ok > span:first-child { background: var(--bc-lime); color: var(--bc-ink); }
+.frontpage .visual-warning > span:first-child { background: var(--bc-yellow); color: var(--bc-ink); }
+.frontpage .visual-score { font-family: var(--font-mono); }
+
+/* --- Links --------------------------------------------------------------- */
+
+.frontpage a { color: #b3146a; }
+.frontpage a:hover { color: var(--bc-ink); }
+.frontpage .ghost-link { color: var(--bc-ink); font-weight: 700; }
+
+.frontpage a:focus-visible,
+.frontpage .btn:focus-visible {
+  outline: 2px solid var(--bc-ink);
+  outline-offset: 2px;
+}

@@ -590,11 +590,6 @@ button:focus-visible {
 
 /* --- Sign in ------------------------------------------------------------- */
 
-.login {
-  background: var(--bc-ground);
-  min-height: 100vh;
-}
-
 .login-panel {
   border: 1px solid var(--bc-rule);
   border-radius: var(--radius-lg);
@@ -666,4 +661,121 @@ button:focus-visible {
 :root[data-theme="light"] .problem-chip {
   border: 1px solid rgba(var(--tone-rgb, var(--bs-info-rgb)), .45);
   background: rgba(var(--tone-rgb, var(--bs-info-rgb)), var(--tint-faint));
+}
+
+/* --- Checks and switches ------------------------------------------------- */
+
+/* A set mark is ink in the light, lime in the dark: pink belongs to errors and
+   deletions and would say the wrong thing here. */
+.form-check-input {
+  border: 1px solid var(--bc-field-edge);
+  border-radius: var(--radius-sm);
+  background-color: var(--bc-surface);
+}
+
+.form-check-input:checked {
+  background-color: var(--bc-ink);
+  border-color: var(--bc-ink);
+}
+
+:root[data-theme="dark"] .form-check-input:checked {
+  background-color: var(--bc-lime);
+  border-color: var(--bc-lime);
+}
+
+.form-check-input:focus-visible {
+  outline: 2px solid var(--bc-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+/* Switches keep the house pairing: ink track, lime knob. */
+.form-switch .form-check-input:checked {
+  background-color: var(--bc-ink);
+  border-color: var(--bc-ink);
+}
+
+/* --- Sign in, two halves ------------------------------------------------- */
+
+.login {
+  display: grid;
+  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  align-items: stretch;
+  gap: 0;
+  /* Full bleed: the onyx half runs to the edge of the window. */
+  width: 100%;
+  max-width: none;
+  min-height: 100vh;
+  margin: 0;
+  padding: 0;
+  background: var(--bc-ground);
+}
+
+.login-aside {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: .75rem;
+  padding: 3rem 2.5rem;
+  background: var(--bc-rail);
+  color: var(--bc-rail-text);
+}
+
+.login-aside .brand-line {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  text-transform: lowercase;
+  color: #ffffff;
+}
+
+.login-greeting {
+  margin: .5rem 0 0;
+  font-family: var(--font-display);
+  font-size: 4rem;
+  line-height: 1.06;
+  text-transform: uppercase;
+  color: var(--bc-yellow);
+}
+
+.login-claim {
+  margin: 0;
+  font-size: var(--text-md);
+  color: var(--bc-rail-muted);
+}
+
+.login-panel {
+  align-self: center;
+  justify-self: center;
+  width: min(26rem, 100%);
+  margin: 2rem;
+}
+
+.login-panel label {
+  display: grid;
+  gap: .35rem;
+  color: var(--bs-body-color);
+  font-weight: 700;
+  font-size: var(--text-sm);
+}
+
+.login-panel input {
+  min-height: var(--control-h);
+  border-radius: var(--radius);
+  border: 1px solid var(--bc-field-edge);
+  background: var(--bc-surface);
+  color: var(--bs-body-color);
+  padding: 0 .7rem;
+  font-weight: 400;
+}
+
+.login-panel input:focus-visible {
+  outline: 2px solid var(--bc-focus);
+  outline-offset: 2px;
+}
+
+/* On a narrow screen the greeting steps back and the card takes the width. */
+@media (max-width: 860px) {
+  .login { grid-template-columns: minmax(0, 1fr); }
+  .login-aside { padding: 1.5rem; }
+  .login-greeting { font-size: 2.5rem; }
 }

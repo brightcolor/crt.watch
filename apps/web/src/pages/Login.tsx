@@ -67,6 +67,13 @@ export function Login({ setupRequired, registrationEnabled, onLogin, onBack, onR
 
   return (
     <main className="login">
+      {/* Two halves, as every workbench sign-in in the house: the onyx side
+          greets, the card takes the credentials. */}
+      <aside className="login-aside">
+        <span className="brand-line"><BrandMark size={22} /> crt.watch</span>
+        <p className="login-greeting">Moin.</p>
+        <p className="login-claim">Certificate and service monitoring</p>
+      </aside>
       <form onSubmit={submit} className="login-panel">
         <span className="brand-line"><BrandMark size={18} /> crt.watch</span>
         <h1>{setupRequired ? "Create admin" : "Sign in"}</h1>

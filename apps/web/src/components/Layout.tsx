@@ -15,6 +15,22 @@ const navItems = [
   { page: "users", label: "Users", icon: Users }
 ];
 
+/* The label above the heading names the area, so it says something the heading
+   does not repeat. */
+const areaByPage: Record<string, string> = {
+  dashboard: "Monitoring",
+  applications: "Monitoring",
+  reports: "Monitoring",
+  settings: "Configuration",
+  operations: "Configuration",
+  import: "Configuration",
+  tenants: "Administration",
+  users: "Administration",
+  profile: "Account"
+};
+
+const areaFor = (page: string) => areaByPage[page] ?? "Monitoring";
+
 export function Layout({ children, page, pageTitle, onNew, theme, themeMode, setThemeMode, onPage, version, stats = {}, monitors = [], onSelectMonitor, tenants = [], tenantId, onTenant, teams = [], teamId, onTeam, user, impersonator, onStopImpersonation, onProfile, onLogout }: any) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -225,7 +241,7 @@ export function Layout({ children, page, pageTitle, onNew, theme, themeMode, set
               <div>
                 {/* Every page opens the same way: the label with its square,
                     then the name of the page in capitals. */}
-                <p className="page-eyebrow">{titleFor(page)}</p>
+                <p className="page-eyebrow">{areaFor(page)}</p>
                 <h1>{pageTitle || titleFor(page)}</h1>
               </div>
               {pageTitle && <ol className="breadcrumb mb-0">
