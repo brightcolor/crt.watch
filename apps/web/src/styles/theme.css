@@ -10,23 +10,40 @@
 :root,
 [data-bs-theme="light"],
 [data-bs-theme="dark"] {
-  /* Brand accent. Change these two values to rebrand the whole interface. */
-  --accent: #6366f1;
-  --accent-rgb: 99, 102, 241;
+  /* bright color palette. Every hex below is from the house tokens
+     (bright-color-design, bc-tokens.css) and nothing else is allowed in. */
+  --bc-ink: #111111;
+  --bc-paper: #f2f0eb;
+  --bc-white: #ffffff;
+  --bc-cyan: #1dc3f3;
+  --bc-yellow: #fed329;
+  --bc-yellow-deep: #e9bc0c;
+  --bc-magenta: #ee318a;
+  --bc-pink: #d61f7a;
+  --bc-pink-deep: #b81765;
+  --bc-lime: #bfd535;
+  --bc-violet: #aa4b88;
+
+  /* Brand accent. In the workbench the accent marks and tints; the yellow main
+     action is a role of its own because ink, not white, sits on it. */
+  --accent: #ee318a;
+  --accent-rgb: 238, 49, 138;
 
   /* The accent plays three roles that need different luminance to stay legible:
      a tint and border colour, a text colour, and a filled surface carrying
      white text. In light mode one value clears all three. */
-  --accent-text: var(--accent);
-  --accent-solid: var(--accent);
+  --accent-text: #b3146a;
+  --accent-solid: var(--bc-yellow);
+  /* Type on the filled accent. Yellow carries ink, never white. */
+  --accent-on-solid: var(--bc-ink);
 
   --bs-primary: var(--accent);
   --bs-primary-rgb: var(--accent-rgb);
 
-  /* Corner radii. Four steps, nothing in between. */
-  --radius-lg: .75rem;   /* cards, panels, modal */
-  --radius: .5rem;       /* buttons, inputs, inner boxes */
-  --radius-sm: .375rem;  /* small buttons, status squares, chips */
+  /* Corner radii. The workbench rounds cards at 12 px, controls at 8 px. */
+  --radius-lg: 12px;     /* cards, panels, modal */
+  --radius: 8px;         /* buttons, inputs, inner boxes */
+  --radius-sm: 6px;      /* small buttons, status squares, chips */
   --radius-pill: 999px;  /* pills */
 
   /* Status tints. One value per role, used everywhere. */
@@ -37,8 +54,8 @@
   --tint-active: .16;    /* selected chip, active filter */
 
   /* Control sizing. Buttons and inputs share a height so rows line up. */
-  --control-h: 34px;
-  --control-h-sm: 28px;
+  --control-h: 38px;
+  --control-h-sm: 30px;
   --control-px: .7rem;
 
   /* Surfaces */
@@ -55,8 +72,11 @@
   --text-xl: 1.35rem;
   --text-stat: 1.45rem;
 
-  --font-sans: InterVariable, Inter, ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
-  --font-mono: "Cascadia Code", "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  /* Anton stands in capitals only and carries headings; Atkinson Hyperlegible
+     is the text face; IBM Plex Mono holds hosts, dates and other values. */
+  --font-display: Anton, Impact, "Arial Narrow", sans-serif;
+  --font-sans: "Atkinson Hyperlegible", ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
   --ease: cubic-bezier(.22, .8, .36, 1);
 
@@ -70,95 +90,137 @@
 
 :root[data-theme="dark"] {
   color-scheme: dark;
-  --bs-body-color: #dbdee1;
-  --bs-body-color-rgb: 219, 222, 225;
-  --bs-body-bg: #313338;
-  --bs-body-bg-rgb: 49, 51, 56;
-  --bs-secondary-color: #b5bac1;
-  --bs-secondary-color-rgb: 181, 186, 193;
-  --bs-secondary: #b5bac1;
-  --bs-secondary-rgb: 181, 186, 193;
-  --bs-secondary-bg: #2b2d31;
-  --bs-secondary-bg-rgb: 43, 45, 49;
-  --bs-tertiary-bg: #1e1f22;
-  --bs-tertiary-bg-rgb: 30, 31, 34;
-  --bs-emphasis-color: #f2f3f5;
-  --bs-emphasis-color-rgb: 242, 243, 245;
-  --bs-border-color: #3f4147;
-  --bs-border-color-translucent: rgba(181, 186, 193, .22);
-  --bs-link-color: #f2f3f5;
-  --bs-link-color-rgb: 242, 243, 245;
-  --bs-success: #55bc76;
-  --bs-success-rgb: 85, 188, 118;
-  --bs-warning: #e0a63a;
-  --bs-warning-rgb: 224, 166, 58;
-  --bs-danger: #f38b8b;
-  --bs-danger-rgb: 243, 139, 139;
-  --bs-info: #4cc4dd;
-  --bs-info-rgb: 76, 196, 221;
-  --bs-light: #e4e7ec;
-  --bs-light-rgb: 228, 231, 236;
-  --bs-dark: #1e1f22;
-  --bs-dark-rgb: 30, 31, 34;
-  --bs-card-bg: #2b2d31;
-  --bs-card-color: #dbdee1;
-  --bs-dropdown-bg: #2b2d31;
-  --bs-dropdown-link-color: #dbdee1;
-  --bs-list-group-bg: #2b2d31;
-  --bs-list-group-color: #dbdee1;
-  --bs-box-shadow-sm: 0 .2rem .6rem rgba(0, 0, 0, .24);
-  --bs-box-shadow: 0 .5rem 1.4rem rgba(0, 0, 0, .3);
-  --bs-box-shadow-lg: 0 1rem 2.4rem rgba(0, 0, 0, .44);
+  /* Onyx surfaces, same brand colours. */
+  --bs-body-color: #e6e4de;
+  --bs-body-color-rgb: 230, 228, 222;
+  --bs-body-bg: #0b0b0c;
+  --bs-body-bg-rgb: 11, 11, 12;
+  --bs-secondary-color: #a3a097;
+  --bs-secondary-color-rgb: 163, 160, 151;
+  --bs-secondary: #a3a097;
+  --bs-secondary-rgb: 163, 160, 151;
+  --bs-secondary-bg: #18181a;
+  --bs-secondary-bg-rgb: 24, 24, 26;
+  --bs-tertiary-bg: #19191b;
+  --bs-tertiary-bg-rgb: 25, 25, 27;
+  --bs-emphasis-color: #ffffff;
+  --bs-emphasis-color-rgb: 255, 255, 255;
+  --bs-border-color: #2a2a2d;
+  --bs-border-color-translucent: rgba(230, 228, 222, .16);
+  --bs-link-color: #1dc3f3;
+  --bs-link-color-rgb: 29, 195, 243;
+  --bs-success: #bfd535;
+  --bs-success-rgb: 191, 213, 53;
+  --bs-warning: #fed329;
+  --bs-warning-rgb: 254, 211, 41;
+  --bs-danger: #ff5ca8;
+  --bs-danger-rgb: 255, 92, 168;
+  --bs-info: #1dc3f3;
+  --bs-info-rgb: 29, 195, 243;
+  --bs-light: #e6e4de;
+  --bs-light-rgb: 230, 228, 222;
+  --bs-dark: #0f0f10;
+  --bs-dark-rgb: 15, 15, 16;
+  --bs-card-bg: #141415;
+  --bs-card-color: #e6e4de;
+  --bs-dropdown-bg: #1c1c1e;
+  --bs-dropdown-link-color: #e6e4de;
+  --bs-list-group-bg: #141415;
+  --bs-list-group-color: #e6e4de;
+  --bs-box-shadow-sm: 0 1px 2px rgba(0, 0, 0, .5);
+  --bs-box-shadow: 0 1px 2px rgba(0, 0, 0, .5);
+  --bs-box-shadow-lg: 0 10px 30px rgba(0, 0, 0, .6);
 
-  --accent-text: #a0a2f7;
-  --accent-solid: #5257db;
+  --accent: #ee318a;
+  --accent-rgb: 238, 49, 138;
+  --accent-text: #1dc3f3;
+  --accent-solid: var(--bc-yellow);
+  --accent-on-solid: var(--bc-ink);
 
   /* Dark surfaces need a slightly stronger tint to read at the same weight. */
-  --tint-surface: .14;
-  --tint-solid: .16;
-  --tint-faint: .08;
-  --tint-active: .2;
+  --tint-surface: .16;
+  --tint-solid: .18;
+  --tint-faint: .09;
+  --tint-active: .22;
+
+  --bc-ground: #0b0b0c;
+  --bc-surface: #141415;
+  --bc-head: #18181a;
+  --bc-hover: #232326;
+  --bc-rule: #2a2a2d;
+  --bc-field-edge: #6e6e74;
+  --bc-text-quiet: #a3a097;
+  --bc-rail: #070708;
+  --bc-rail-2: #161618;
+  --bc-rail-text: #d9d6ce;
+  --bc-rail-muted: #8c8981;
+  --bc-rail-line: #1f1f22;
+  --bc-focus: #1dc3f3;
+  --bc-chart-grid: rgba(230, 228, 222, .10);
+  --bc-chart-fill: rgba(238, 49, 138, .18);
 }
 
 :root[data-theme="light"] {
   color-scheme: light;
-  --bs-body-bg: #ffffff;
-  --bs-body-bg-rgb: 255, 255, 255;
-  --bs-body-color: #2e3338;
-  --bs-body-color-rgb: 46, 51, 56;
-  --bs-secondary-color: #5f626a;
-  --bs-secondary-color-rgb: 95, 98, 106;
-  --bs-secondary: #5f626a;
-  --bs-secondary-rgb: 95, 98, 106;
-  --bs-secondary-bg: #f5f6f8;
-  --bs-secondary-bg-rgb: 245, 246, 248;
-  --bs-tertiary-bg: #eceef1;
-  --bs-tertiary-bg-rgb: 236, 238, 241;
-  --bs-emphasis-color: #14161a;
-  --bs-emphasis-color-rgb: 20, 22, 26;
-  --accent: #4f46e5;
-  --accent-rgb: 79, 70, 229;
-  --bs-success: #147c3b;
-  --bs-success-rgb: 20, 124, 59;
-  --bs-warning: #af5109;
-  --bs-warning-rgb: 175, 81, 9;
-  --bs-danger: #b91c1c;
-  --bs-danger-rgb: 185, 28, 28;
-  --bs-info: #0e7490;
-  --bs-info-rgb: 14, 116, 144;
-  --bs-border-color: #d9dce1;
-  --bs-border-color-translucent: rgba(95, 98, 106, .2);
-  --bs-link-color: #2e3338;
-  --bs-link-color-rgb: 46, 51, 56;
+  /* Paper ground, white cards: the workbench look of the house. */
+  --bs-body-bg: #f2f0eb;
+  --bs-body-bg-rgb: 242, 240, 235;
+  --bs-body-color: #1a1a1a;
+  --bs-body-color-rgb: 26, 26, 26;
+  --bs-secondary-color: #5e5b55;
+  --bs-secondary-color-rgb: 94, 91, 85;
+  --bs-secondary: #5e5b55;
+  --bs-secondary-rgb: 94, 91, 85;
+  --bs-secondary-bg: #f7f6f2;
+  --bs-secondary-bg-rgb: 247, 246, 242;
+  --bs-tertiary-bg: #ece9e2;
+  --bs-tertiary-bg-rgb: 236, 233, 226;
+  --bs-emphasis-color: #111111;
+  --bs-emphasis-color-rgb: 17, 17, 17;
+  --accent: #ee318a;
+  --accent-rgb: 238, 49, 138;
+  --accent-text: #b3146a;
+  --accent-solid: var(--bc-yellow);
+  --accent-on-solid: var(--bc-ink);
+  /* Status colours carry their own readable type tone on paper. */
+  --bs-success: #4e6a00;
+  --bs-success-rgb: 78, 106, 0;
+  --bs-warning: #7a5b00;
+  --bs-warning-rgb: 122, 91, 0;
+  --bs-danger: #b3146a;
+  --bs-danger-rgb: 179, 20, 106;
+  --bs-info: #0a86ad;
+  --bs-info-rgb: 10, 134, 173;
+  --bs-border-color: #e3e0d8;
+  --bs-border-color-translucent: rgba(17, 17, 17, .12);
+  --bs-link-color: #b3146a;
+  --bs-link-color-rgb: 179, 20, 106;
   --bs-card-bg: #ffffff;
-  --bs-card-color: #2e3338;
+  --bs-card-color: #1a1a1a;
   --bs-dropdown-bg: #ffffff;
-  --bs-dropdown-link-color: #2e3338;
+  --bs-dropdown-link-color: #1a1a1a;
   --bs-list-group-bg: #ffffff;
-  --bs-list-group-color: #2e3338;
-  --bs-box-shadow-sm: 0 1px 2px rgba(16, 24, 40, .06);
-  --bs-box-shadow: 0 .4rem 1rem rgba(16, 24, 40, .08);
-  --bs-box-shadow-lg: 0 1rem 2.4rem rgba(16, 24, 40, .14);
+  --bs-list-group-color: #1a1a1a;
+  --bs-box-shadow-sm: 0 1px 2px rgba(17, 17, 17, .05);
+  --bs-box-shadow: 0 1px 2px rgba(17, 17, 17, .05), 0 6px 20px rgba(17, 17, 17, .05);
+  --bs-box-shadow-lg: 0 8px 28px rgba(17, 17, 17, .16);
+
+  /* Roles the shell and the components read. */
+  --bc-ground: #f2f0eb;
+  --bc-surface: #ffffff;
+  --bc-head: #f7f6f2;
+  --bc-hover: #f1efe9;
+  --bc-rule: #e3e0d8;
+  --bc-field-edge: #8e8a80;
+  --bc-text-quiet: #5e5b55;
+  --bc-rail: #111111;
+  --bc-rail-2: #1c1c1e;
+  --bc-rail-text: #d9d6ce;
+  --bc-rail-muted: #8c8981;
+  --bc-rail-line: #29292d;
+  --bc-focus: #0a86ad;
+  --bc-chart-grid: rgba(17, 17, 17, .08);
+  --bc-chart-fill: rgba(238, 49, 138, .12);
 }
 
 /* ---------------------------------------------------------------------------
@@ -184,6 +246,9 @@
 .tone-paused,
 .tone-unknown,
 .tone-info { --tone: var(--bs-info); --tone-rgb: var(--bs-info-rgb); }
+
+/* The house reads a state by its colour: lime runs, yellow waits, pink hurts,
+   cyan informs. Nothing else joins the set. */
 
 .tone-muted,
 .tone-secondary,

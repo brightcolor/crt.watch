@@ -223,6 +223,9 @@ export function Layout({ children, page, pageTitle, onNew, theme, themeMode, set
           <div className="container-fluid">
             <div className="adminlte-titlebar">
               <div>
+                {/* Every page opens the same way: the label with its square,
+                    then the name of the page in capitals. */}
+                <p className="page-eyebrow">{titleFor(page)}</p>
                 <h1>{pageTitle || titleFor(page)}</h1>
               </div>
               {pageTitle && <ol className="breadcrumb mb-0">

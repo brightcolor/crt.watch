@@ -160,16 +160,16 @@ textarea {
 
 /* One accent button per view. Everything else is quiet. */
 .btn-primary {
-  --bs-btn-color: #fff;
+  --bs-btn-color: var(--accent-on-solid, #fff);
   --bs-btn-bg: var(--accent-solid);
   --bs-btn-border-color: var(--accent-solid);
-  --bs-btn-hover-color: #fff;
+  --bs-btn-hover-color: var(--accent-on-solid, #fff);
   --bs-btn-hover-bg: color-mix(in srgb, var(--accent-solid) 88%, #000);
   --bs-btn-hover-border-color: color-mix(in srgb, var(--accent-solid) 88%, #000);
-  --bs-btn-active-color: #fff;
+  --bs-btn-active-color: var(--accent-on-solid, #fff);
   --bs-btn-active-bg: color-mix(in srgb, var(--accent-solid) 80%, #000);
   --bs-btn-active-border-color: color-mix(in srgb, var(--accent-solid) 80%, #000);
-  --bs-btn-disabled-color: #fff;
+  --bs-btn-disabled-color: var(--accent-on-solid, #fff);
   --bs-btn-disabled-bg: var(--accent-solid);
   --bs-btn-disabled-border-color: var(--accent-solid);
 }

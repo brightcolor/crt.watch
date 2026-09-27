@@ -1,0 +1,669 @@
+/* ---------------------------------------------------------------------------
+   bright color workbench
+
+   The house handwriting for an admin surface: onyx rail, paper ground, white
+   cards with a 12 px radius and a soft shadow, Anton in capitals on headings,
+   yellow as the action colour, magenta for marks, lime and pink for states.
+
+   This layer loads last and only sets what the look needs. Colours, radii and
+   fonts come from theme.css; nothing here invents a value.
+   --------------------------------------------------------------------------*/
+
+/* Four-colour band across the top, the mark you see before anything else. */
+body::before {
+  content: "";
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 1080;
+  height: 4px;
+  background: linear-gradient(
+    to right,
+    var(--bc-magenta) 0 25%,
+    var(--bc-cyan) 25% 50%,
+    var(--bc-lime) 50% 75%,
+    var(--bc-yellow) 75% 100%
+  );
+}
+
+.crtwatch-adminlte .app-sidebar,
+.crtwatch-adminlte .app-header { top: 4px; }
+.crtwatch-adminlte .app-main { padding-top: 4px; }
+
+/* --- Type ---------------------------------------------------------------- */
+
+body,
+.crtwatch-adminlte { font-family: var(--font-sans); }
+
+/* Anton only ever stands in capitals: headings, card titles, big numbers. */
+h1, h2, .h1, .h2,
+.crtwatch-adminlte .app-content-header h1,
+.crtwatch-adminlte .card-header > h2,
+.crtwatch-adminlte .card-header > h3,
+.crtwatch-adminlte .card-title,
+.panel > div > h3,
+.panel > h3,
+.detail-title,
+.section-title {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+  line-height: 1.12;
+  color: var(--bs-emphasis-color);
+}
+
+.crtwatch-adminlte .app-content-header h1 { font-size: 2.375rem; }
+.crtwatch-adminlte .card-header > h2,
+.crtwatch-adminlte .card-header > h3,
+.crtwatch-adminlte .card-title,
+.panel > div > h3,
+.panel > h3 { font-size: 1.1875rem; }
+
+h3, h4, h5, h6, .h3, .h4, .h5, .h6 { font-weight: 700; }
+
+code, kbd, samp, pre, .mono, .host, .fingerprint { font-family: var(--font-mono); }
+
+/* Page head: label with a magenta square, then the Anton line. */
+.page-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0 0 6px;
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .16em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--bc-text-quiet);
+}
+
+.page-eyebrow::before {
+  content: "";
+  flex: none;
+  width: 9px;
+  height: 9px;
+  background: var(--bc-magenta);
+}
+
+/* --- Rail ---------------------------------------------------------------- */
+
+:root .crtwatch-adminlte .app-sidebar {
+  background: var(--bc-rail);
+  border-right: 1px solid var(--bc-rail-line);
+  color: var(--bc-rail-text);
+}
+
+:root .crtwatch-adminlte .sidebar-brand {
+  border-bottom: 1px solid var(--bc-rail-line);
+  background: var(--bc-rail);
+}
+
+.crtwatch-adminlte .brand-text {
+  font-family: var(--font-display);
+  font-size: 1.35rem;
+  font-weight: 400;
+  letter-spacing: .01em;
+  text-transform: lowercase;
+  color: #ffffff;
+}
+
+/* The workspace switcher sits on the rail, so it carries rail tones. */
+.crtwatch-adminlte .workspace-button {
+  background: var(--bc-rail-2);
+  border: 1px solid var(--bc-rail-line);
+  border-radius: var(--radius);
+  color: var(--bc-rail-text);
+}
+
+.crtwatch-adminlte .workspace-button:hover { background: #232326; color: #ffffff; }
+.crtwatch-adminlte .workspace-copy strong { color: #ffffff; }
+.crtwatch-adminlte .workspace-copy span,
+.crtwatch-adminlte .workspace-chevron { color: var(--bc-rail-muted); }
+
+.crtwatch-adminlte .workspace-mark {
+  background: var(--bc-yellow);
+  color: var(--bc-ink);
+  border-radius: var(--radius-sm);
+  font-weight: 700;
+}
+
+/* Module list: one open item, marked by a yellow edge and a yellow icon. */
+:root .crtwatch-adminlte .sidebar-menu .nav-link {
+  border-radius: 0;
+  color: var(--bc-rail-text);
+  font-weight: 400;
+}
+
+:root .crtwatch-adminlte .sidebar-menu .nav-link:hover {
+  background: var(--bc-rail-2);
+  color: #ffffff;
+}
+
+:root .crtwatch-adminlte .sidebar-menu .nav-link.active {
+  background: var(--bc-rail-2);
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.crtwatch-adminlte .sidebar-menu .nav-link.active::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 4px;
+  border-radius: 0;
+  background: var(--bc-yellow);
+}
+
+.crtwatch-adminlte .sidebar-menu .nav-link.active .nav-icon { color: var(--bc-yellow); }
+.crtwatch-adminlte .sidebar-menu .nav-icon { color: var(--bc-rail-muted); }
+.crtwatch-adminlte .sidebar-menu .nav-link:hover .nav-icon { color: var(--bc-rail-text); }
+
+/* A count on the rail is pink, the colour that says "look here". */
+.crtwatch-adminlte .sidebar-menu .nav-badge {
+  background: var(--bc-pink);
+  color: #ffffff;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.crtwatch-adminlte .sidebar-menu .nav-header,
+.crtwatch-adminlte .sidebar-menu .section-label {
+  font-size: 10.5px;
+  letter-spacing: .18em;
+  text-transform: uppercase;
+  color: var(--bc-rail-muted);
+}
+
+/* --- Top bar ------------------------------------------------------------- */
+
+.crtwatch-adminlte .app-header {
+  min-height: 60px;
+  background: var(--bc-surface);
+  border-bottom: 1px solid var(--bc-rule);
+  box-shadow: none;
+}
+
+.crtwatch-adminlte .header-search input,
+.crtwatch-adminlte .header-search .form-control {
+  height: var(--control-h);
+  border-radius: var(--radius);
+  border: 1px solid var(--bc-field-edge);
+  background: var(--bs-body-bg);
+  font-size: var(--text-body);
+}
+
+.crtwatch-adminlte .bell-count {
+  background: var(--bc-pink);
+  color: #ffffff;
+  border-radius: 999px;
+  font-weight: 700;
+}
+
+/* Avatar: onyx disc with a yellow letter, in both modes. */
+.crtwatch-adminlte .avatar {
+  background: var(--bc-ink);
+  color: var(--bc-yellow);
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: .04em;
+  border: 1px solid var(--bc-rail-line);
+}
+
+/* --- Cards --------------------------------------------------------------- */
+
+.crtwatch-adminlte .card,
+.panel,
+.card {
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--bc-rule);
+  background: var(--bc-surface);
+  box-shadow: var(--bs-box-shadow-sm);
+}
+
+.crtwatch-adminlte .card-header {
+  border-bottom: 1px solid var(--bc-rule);
+  background: transparent;
+}
+
+/* --- Tables -------------------------------------------------------------- */
+
+.crtwatch-adminlte table thead th,
+.table thead th {
+  background: var(--bc-head);
+  border-bottom: 1px solid var(--bc-rule);
+  color: var(--bc-text-quiet);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.crtwatch-adminlte table tbody td,
+.table tbody td { border-color: var(--bc-rule); }
+
+.crtwatch-adminlte table tbody tr:hover,
+.table tbody tr:hover { background: var(--bc-hover); }
+
+/* --- States -------------------------------------------------------------- */
+
+/* Pills say their state in a word and in colour: lime runs, yellow waits,
+   pink hurts, cyan informs. */
+.badge,
+.pill,
+.status-pill,
+.state {
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+}
+
+.crtwatch-adminlte .pill,
+.crtwatch-adminlte .status-pill {
+  background: rgba(var(--tone-rgb), var(--tint-surface));
+  border: 1px solid rgba(var(--tone-rgb), var(--tint-border));
+  color: var(--tone);
+}
+
+/* --- Buttons ------------------------------------------------------------- */
+
+.btn {
+  border-radius: var(--radius);
+  font-weight: 700;
+  min-height: var(--control-h);
+}
+
+/* The main action is yellow and carries ink, never white. */
+.btn-primary {
+  --bs-btn-color: var(--accent-on-solid);
+  --bs-btn-hover-color: var(--accent-on-solid);
+  --bs-btn-active-color: var(--accent-on-solid);
+  --bs-btn-disabled-color: var(--accent-on-solid);
+  --bs-btn-bg: var(--bc-yellow);
+  --bs-btn-border-color: var(--bc-yellow);
+  --bs-btn-hover-bg: var(--bc-yellow-deep);
+  --bs-btn-hover-border-color: var(--bc-yellow-deep);
+  --bs-btn-active-bg: var(--bc-yellow-deep);
+  --bs-btn-active-border-color: var(--bc-yellow-deep);
+  --bs-btn-disabled-bg: var(--bc-yellow);
+  --bs-btn-disabled-border-color: var(--bc-yellow);
+}
+
+.btn-outline-secondary,
+.btn-outline-primary {
+  --bs-btn-color: var(--bs-body-color);
+  --bs-btn-border-color: var(--bc-field-edge);
+  --bs-btn-hover-color: var(--bs-body-bg);
+  --bs-btn-hover-bg: var(--bs-body-color);
+  --bs-btn-hover-border-color: var(--bs-body-color);
+}
+
+.btn-danger {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: var(--bc-pink);
+  --bs-btn-border-color: var(--bc-pink);
+  --bs-btn-hover-bg: var(--bc-pink-deep);
+  --bs-btn-hover-border-color: var(--bc-pink-deep);
+}
+
+.btn-success {
+  --bs-btn-color: var(--bc-ink);
+  --bs-btn-bg: var(--bc-lime);
+  --bs-btn-border-color: var(--bc-lime);
+}
+
+/* --- Fields -------------------------------------------------------------- */
+
+.form-control,
+.form-select {
+  min-height: var(--control-h);
+  border-radius: var(--radius);
+  border: 1px solid var(--bc-field-edge);
+  background: var(--bc-surface);
+  color: var(--bs-body-color);
+}
+
+.form-control:focus,
+.form-select:focus,
+.btn:focus-visible,
+a:focus-visible,
+button:focus-visible {
+  outline: 2px solid var(--bc-focus);
+  outline-offset: 2px;
+  box-shadow: none;
+}
+
+.form-label { font-weight: 700; font-size: var(--text-sm); }
+
+/* --- Charts -------------------------------------------------------------- */
+
+.chart-line,
+.spark-line { stroke: var(--bc-magenta); }
+.chart-fill,
+.spark-fill { fill: var(--bc-chart-fill); }
+.chart-grid { stroke: var(--bc-chart-grid); }
+
+/* ---------------------------------------------------------------------------
+   Dashboard in the workbench
+
+   The house reads a panel from the outside in: a coloured edge says what state
+   it is in, Anton says what it is, and the numbers stand large enough to read
+   from across the desk.
+   --------------------------------------------------------------------------*/
+
+.status-hero {
+  border: 1px solid var(--bc-rule);
+  border-left: 4px solid var(--tone, var(--bs-success));
+  border-radius: var(--radius-lg);
+  background: var(--bc-surface);
+  box-shadow: var(--bs-box-shadow-sm);
+  padding: 1.15rem 1.25rem;
+}
+
+/* The soft colour wash belongs to the old look; the edge carries the verdict. */
+.status-hero::before { content: none; }
+
+.hero-copy h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.375rem;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--bs-emphasis-color);
+}
+
+.hero-copy p { color: var(--bc-text-quiet); }
+
+/* The ring and every counter speak in Anton, the face for numbers. */
+.health-ring-value,
+.stat-value,
+.mini-count {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+
+.health-ring-value { font-size: 2rem; }
+.stat-value { font-size: 1.75rem; }
+
+.health-ring-sub,
+.stat-label {
+  font-size: 12.5px;
+  color: var(--bc-text-quiet);
+}
+
+/* --- Filter chips -------------------------------------------------------- */
+
+.filter-chip,
+.issue-filter-chip {
+  border-radius: 999px;
+  border: 1px solid var(--bc-rule);
+  background: var(--bc-surface);
+  color: var(--bs-body-color);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+  min-height: var(--control-h-sm);
+}
+
+.filter-chip:hover { background: var(--bc-hover); }
+
+/* The chosen filter is yellow with ink, the same pairing as the main action. */
+.filter-chip.active,
+.filter-chip[aria-pressed="true"],
+.issue-filter-chip.active {
+  background: var(--bc-yellow);
+  border-color: var(--bc-yellow);
+  color: var(--bc-ink);
+}
+
+.filter-chip .mini-count { font-size: 12px; }
+
+/* The ground is paper, the panels on it are white. That contrast is what makes
+   a workbench readable over a long day. */
+.crtwatch-adminlte .app-main { background: var(--bc-ground); }
+.crtwatch-adminlte .app-content-header { background: var(--bc-ground); border-bottom: 0; }
+
+/* The status line of a monitor is a sentence, not a chip. */
+.message-filter { font-size: var(--text-sm); color: var(--bc-text-quiet); }
+.message-filter:hover { color: var(--bs-emphasis-color); }
+
+/* --- Monitor list -------------------------------------------------------- */
+
+.monitor-group-head,
+.monitor-group-head > strong,
+.dashboard-controls > h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.1875rem;
+  letter-spacing: .02em;
+  text-transform: uppercase;
+  color: var(--bs-emphasis-color);
+}
+
+.monitor-list-head {
+  background: var(--bc-head);
+  border-bottom: 1px solid var(--bc-rule);
+  color: var(--bc-text-quiet);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+}
+
+.monitor-row {
+  border-bottom: 1px solid var(--bc-rule);
+  border-left: 3px solid var(--tone, var(--bc-rule));
+}
+
+.monitor-row:hover { background: var(--bc-hover); }
+.monitor-main strong,
+.monitor-main .monitor-name { font-weight: 700; }
+.monitor-target,
+.cert-line,
+.monitor-cert { font-family: var(--font-mono); font-size: 12.5px; }
+.monitor-target span { color: var(--bc-text-quiet); }
+
+/* Square, quiet row actions; they take colour only when touched. */
+.monitor-action,
+.btn-icon {
+  width: 30px;
+  height: 30px;
+  min-height: 30px;
+  padding: 0;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bc-rule);
+  background: var(--bc-surface);
+  color: var(--bc-text-quiet);
+}
+
+.monitor-action:hover,
+.btn-icon:hover {
+  background: var(--bc-hover);
+  color: var(--bs-emphasis-color);
+  border-color: var(--bc-field-edge);
+}
+
+/* --- Segmented control --------------------------------------------------- */
+
+.segmented {
+  border: 1px solid var(--bc-field-edge);
+  border-radius: var(--radius);
+  overflow: hidden;
+  background: var(--bc-surface);
+}
+
+.segmented button {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--bs-body-color);
+  font-weight: 700;
+  font-size: var(--text-sm);
+  min-height: var(--control-h-sm);
+}
+
+.segmented button[aria-pressed="true"],
+.segmented button.active {
+  background: var(--bc-ink);
+  color: #ffffff;
+}
+
+:root[data-theme="dark"] .segmented button[aria-pressed="true"],
+:root[data-theme="dark"] .segmented button.active {
+  background: var(--bc-yellow);
+  color: var(--bc-ink);
+}
+
+/* --- Alerts and callouts ------------------------------------------------- */
+
+/* A message names its state with a 4 px edge, then says what to do. */
+.callout,
+.alert {
+  border: 1px solid var(--bc-rule);
+  border-left: 4px solid var(--tone, var(--bc-cyan));
+  border-radius: var(--radius);
+  background: var(--bc-surface);
+  color: var(--bs-body-color);
+  box-shadow: none;
+}
+
+.callout-success { --tone: var(--bc-lime); }
+.callout-warning { --tone: var(--bc-yellow); }
+.callout-danger { --tone: var(--bc-pink); }
+.callout-info { --tone: var(--bc-cyan); }
+
+/* --- Empty states -------------------------------------------------------- */
+
+.empty-state,
+.empty-panel {
+  border: 1px dashed var(--bc-field-edge);
+  border-radius: var(--radius-lg);
+  background: var(--bc-head);
+  color: var(--bc-text-quiet);
+}
+
+.empty-mark { color: var(--bc-text-quiet); }
+
+/* --- Sign in ------------------------------------------------------------- */
+
+/* The login sits on paper with one white card, like every other workbench. */
+.login-shell,
+.auth-shell {
+  background: var(--bc-ground);
+}
+
+.login-card,
+.auth-card {
+  border: 1px solid var(--bc-rule);
+  border-radius: var(--radius-lg);
+  background: var(--bc-surface);
+  box-shadow: var(--bs-box-shadow);
+}
+
+.login-card h1,
+.auth-card h1 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+
+/* --- Big numbers --------------------------------------------------------- */
+
+/* The remaining lifetime is the number this product exists for, so it gets the
+   display face and the state colour. */
+.detail-lifetime strong,
+.lifetime-value,
+.usage-head strong {
+  font-family: var(--font-display);
+  font-weight: 400;
+  letter-spacing: .01em;
+}
+
+.detail-lifetime small { color: var(--bc-text-quiet); }
+
+/* --- Sign in ------------------------------------------------------------- */
+
+.login {
+  background: var(--bc-ground);
+  min-height: 100vh;
+}
+
+.login-panel {
+  border: 1px solid var(--bc-rule);
+  border-radius: var(--radius-lg);
+  background: var(--bc-surface);
+  box-shadow: var(--bs-box-shadow);
+}
+
+.login-panel h1,
+.login-panel h2 {
+  font-family: var(--font-display);
+  font-weight: 400;
+  text-transform: uppercase;
+  letter-spacing: .02em;
+}
+
+.login-panel .brand-line {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  text-transform: lowercase;
+  color: var(--bs-emphasis-color);
+}
+
+.login-panel .muted { color: var(--bc-text-quiet); }
+.login-panel .error {
+  border-left: 4px solid var(--bc-pink);
+  background: var(--bc-bad-tint, rgba(214, 31, 122, .08));
+  padding: .6rem .75rem;
+  border-radius: var(--radius-sm);
+  color: var(--bs-danger);
+  font-weight: 700;
+}
+
+/* --- Meters -------------------------------------------------------------- */
+
+/* A filled bar carries its number on the fill, and the fill stays light enough
+   to read ink on it. */
+.lifetime-meter,
+.usage-meter {
+  border-radius: 999px;
+  background: var(--bc-head);
+  border: 1px solid var(--bc-rule);
+  overflow: hidden;
+}
+
+.lifetime-meter > span,
+.usage-meter > span {
+  background: var(--tone, var(--bc-lime));
+  color: var(--bc-ink);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+/* --- Legibility fixes measured on the rendered page ---------------------- */
+
+/* Everything inside the rail reads against onyx, so it takes the rail tones.
+   The page's quiet grey would drop to 2.5:1 here. */
+.crtwatch-adminlte .workspace-copy,
+.crtwatch-adminlte .workspace-copy * { color: var(--bc-rail-muted); }
+.crtwatch-adminlte .workspace-copy strong { color: #ffffff; }
+
+/* A chip keeps its colour in the border and the tint; the words stay ink, the
+   way state pills do in the house. A tinted colour on a tint drops under AA. */
+:root[data-theme="light"] .problem-chip,
+:root[data-theme="light"] .problem-chip *,
+:root[data-theme="light"] .group-badges .badge,
+:root[data-theme="light"] .pill,
+:root[data-theme="light"] .status-pill { color: var(--bs-body-color); }
+
+:root[data-theme="light"] .problem-chip {
+  border: 1px solid rgba(var(--tone-rgb, var(--bs-info-rgb)), .45);
+  background: rgba(var(--tone-rgb, var(--bs-info-rgb)), var(--tint-faint));
+}

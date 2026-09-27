@@ -1,4 +1,6 @@
-@import url("https://fonts.googleapis.com/css2?family=Inter:wght@100..900&display=swap");
+/* The house faces travel with the application; nothing is fetched from a
+   font service at run time. */
+@import "./bc-fonts.css";
 @import "admin-lte/dist/css/adminlte.css";
 @import "bootstrap-icons/font/bootstrap-icons.css";
 
@@ -12,3 +14,6 @@
 @import "./forms.css";
 @import "./frontpage.css";
 @import "./responsive.css";
+
+/* The workbench layer loads last: it carries the house handwriting. */
+@import "./werkbank.css";
