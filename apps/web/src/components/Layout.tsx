@@ -88,7 +88,7 @@ export function Layout({ children, page, pageTitle, onNew, theme, themeMode, set
   };
 
   return (
-    <div className={`app-wrapper layout-fixed sidebar-expand-lg sidebar-mini crtwatch-adminlte${sidebarOpen ? " sidebar-open" : ""}${sidebarCollapsed ? " sidebar-collapse" : ""}`}>
+    <div className={`app-wrapper layout-fixed sidebar-expand-lg sidebar-mini crtwatch-adminlte${sidebarOpen ? " sidebar-open" : ""}${sidebarCollapsed ? " sidebar-collapse" : ""}`} lang="en">
       {sidebarOpen && <button className="sidebar-backdrop" type="button" aria-label="Close navigation" onClick={() => setSidebarOpen(false)} />}
       <nav className="app-header navbar navbar-expand bg-body border-bottom">
         <div className="container-fluid gap-2">

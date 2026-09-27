@@ -130,7 +130,8 @@ function App() {
   /* The tab names the page you are on while you work, and carries the product
      line while signed out — where it is also what a search result shows. */
   useEffect(() => {
-    const marketing = "crt.watch — self-hosted TLS certificate & service monitoring";
+    // The public page is German; the application keeps its English titles.
+    const marketing = "crt.watch — Zertifikate und Dienste überwachen";
     if (!user) {
       document.title = marketing;
       return;

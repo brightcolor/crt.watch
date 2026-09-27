@@ -36,10 +36,22 @@
 
 /* --- Head ---------------------------------------------------------------- */
 
+/* The head runs edge to edge, like the band below it. */
 .frontpage .frontpage-nav {
+  position: relative;
   border-bottom: 2px solid var(--bc-ink);
   background: var(--bc-ink);
   color: #ffffff;
+}
+
+.frontpage .frontpage-nav::before {
+  content: "";
+  position: absolute;
+  inset: 0 auto 0 50%;
+  width: 100vw;
+  transform: translateX(-50%);
+  background: var(--bc-ink);
+  z-index: -1;
 }
 
 .frontpage .frontpage-nav a,
@@ -61,17 +73,23 @@
 .frontpage .frontpage-copy {
   position: relative;
   z-index: 0;
+  /* The copy spans the whole row so its band is centred on the page; the words
+     keep their reading width inside it. */
+  max-width: none;
   padding: 3rem 0;
   color: var(--bc-deep, #05202a);
 }
+
+.frontpage .frontpage-copy > * { max-width: 47rem; }
 
 .frontpage .frontpage-copy::before {
   content: "";
   position: absolute;
   top: 0;
   bottom: 0;
-  left: calc(50% - 50vw);
-  right: calc(50% - 50vw);
+  left: 50%;
+  width: 100vw;
+  transform: translateX(-50%);
   z-index: -1;
   background: var(--bc-cyan);
   border-bottom: 2px solid var(--bc-ink);
@@ -189,7 +207,23 @@
 
 /* --- The demo panel ------------------------------------------------------ */
 
-.frontpage .frontpage-visual { background: #ffffff; }
+/* The panel steps over the lower edge of the band, the way a picture overlaps
+   its frame in the house. Without the pull it would float in empty paper. */
+.frontpage .frontpage-hero {
+  display: block;
+  min-height: 0;
+  padding: 0 0 3rem;
+  overflow: visible;
+}
+
+/* Out of the absolute corner and back into the flow: the panel follows the
+   band and steps over its lower edge. */
+.frontpage .frontpage-visual {
+  position: static;
+  width: min(44rem, 92%);
+  margin: -3rem 0 0 auto;
+  background: #ffffff;
+}
 .frontpage .visual-row,
 .frontpage .visual-header {
   border-radius: 0;
@@ -221,3 +255,30 @@
   outline: 2px solid var(--bc-ink);
   outline-offset: 2px;
 }
+
+/* --- Closing band -------------------------------------------------------- */
+
+/* One band at the end carries the single call of the page. Ink ground, yellow
+   heading, the action in pink: the house pairing for "do this now". */
+.frontpage .frontpage-close {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  margin-top: 3rem;
+  padding: 2.5rem 2rem;
+  background: var(--bc-ink);
+  color: #ffffff;
+  border-top: 4px solid var(--bc-yellow);
+}
+
+.frontpage .frontpage-close h2 {
+  margin: .35rem 0 .5rem;
+  color: var(--bc-yellow);
+}
+
+.frontpage .frontpage-close p { margin: 0; color: #d9d6ce; }
+.frontpage .frontpage-close .eyebrow { color: #ffffff; }
+.frontpage .frontpage-close .eyebrow::before { background: var(--bc-cyan); }
+.frontpage .frontpage-close .btn:hover { box-shadow: 3px 3px 0 var(--bc-yellow); }

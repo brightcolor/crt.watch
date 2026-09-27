@@ -1,8 +1,10 @@
-import { ArrowRight, Bell, Github, LockKeyhole, Radar, Server, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bell, LockKeyhole, Radar, Server, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { BrandMark } from "../components/BrandMark";
 
-const githubUrl = "https://github.com/brightcolor/crt.watch";
+/* The public page speaks German and addresses the reader directly; the
+   application behind the sign-in stays English. The subtree carries lang="de"
+   so screen readers switch for it without changing the document language. */
 
 export function FrontPage({ setupRequired, registrationEnabled, onAuth, onRegister }: {
   setupRequired: boolean;
@@ -11,48 +13,50 @@ export function FrontPage({ setupRequired, registrationEnabled, onAuth, onRegist
   onRegister: () => void;
 }) {
   const primaryAction = setupRequired ? onAuth : registrationEnabled ? onRegister : onAuth;
-  const primaryLabel = setupRequired ? "Create first admin" : registrationEnabled ? "Create organization" : "Open dashboard";
+  const primaryLabel = setupRequired
+    ? "Ersten Zugang anlegen"
+    : registrationEnabled ? "Konto anlegen" : "Zur Übersicht";
   return (
-    <main className="frontpage">
+    <main className="frontpage" lang="de">
       <header className="frontpage-nav">
-        <a className="frontpage-brand" href="#top" aria-label="crt.watch home">
+        <a className="frontpage-brand" href="#top" aria-label="crt.watch Startseite">
           <span><BrandMark size={19} /></span>
           <strong>crt.watch</strong>
         </a>
-        <nav aria-label="Public navigation">
-          <a href="#features">Features</a>
-          <a href="#operations">Operations</a>
-          <a href={githubUrl} target="_blank" rel="noreferrer"><Github size={16} /> GitHub</a>
-          {!setupRequired && registrationEnabled && <button className="btn btn-outline-secondary" type="button" onClick={onRegister}>Register</button>}
-          <button className="btn btn-primary" type="button" onClick={onAuth}>{setupRequired ? "Set up" : "Sign in"}</button>
+        <nav aria-label="Seitennavigation">
+          <a href="#features">Was geprüft wird</a>
+          <a href="#operations">Betrieb</a>
+          {!setupRequired && registrationEnabled && <button className="btn btn-outline-secondary" type="button" onClick={onRegister}>Konto anlegen</button>}
+          <button className="btn btn-primary" type="button" onClick={onAuth}>{setupRequired ? "Einrichten" : "Anmelden"}</button>
         </nav>
       </header>
 
       <section className="frontpage-hero" id="top">
         <div className="frontpage-copy">
-          <span className="eyebrow">TLS and service monitoring</span>
-          <h1>Watch certificates before customers notice problems.</h1>
+          <span className="eyebrow">Zertifikate und Dienste im Blick</span>
+          <h1>Du weißt vom Zertifikat, bevor der Kunde anruft.</h1>
           <p>
-            crt.watch monitors certificates, TLS posture, DNS drift, STARTTLS services, logins,
-            public status pages, and notifications from one self-hosted operator interface.
+            crt.watch prüft Ablaufdatum, Kette, Namen und TLS-Einstellungen deiner Zertifikate —
+            und gleich die Dienste dahinter: HTTPS, Mailserver mit STARTTLS, SSH, DNS und Anmeldungen.
+            Die Meldung kommt per Mail, Chat oder Webhook, solange noch Zeit zum Handeln ist.
           </p>
           <div className="frontpage-actions">
             <button className="btn btn-primary btn-lg" type="button" onClick={primaryAction}>{primaryLabel} <ArrowRight size={16} /></button>
-            <a className="btn btn-outline-secondary" href={githubUrl} target="_blank" rel="noreferrer"><Github size={16} /> View on GitHub</a>
+            <a className="btn btn-outline-secondary" href="#features">Was geprüft wird</a>
           </div>
         </div>
-        <div className="frontpage-visual" aria-label="crt.watch monitoring overview">
+        <div className="frontpage-visual" aria-label="Übersicht in crt.watch">
           <div className="visual-header"><span></span><span></span><span></span></div>
           <div className="visual-score">
-            <strong>All critical certificates covered</strong>
-            <small>Live checks, expiry windows, TLS grading, DNS comparisons</small>
+            <strong>Alle wichtigen Zertifikate erfasst</strong>
+            <small>Laufende Prüfungen, Restlaufzeit, TLS-Note, DNS-Vergleich</small>
           </div>
           {[
-            ["mail.example.net", "OK", "TLS A, 62 days remaining"],
-            ["api.example.com", "Warning", "Certificate changes watched"],
-            ["imap.example.org", "OK", "STARTTLS login succeeded"]
+            ["mail.example.net", "OK", "TLS A, 62 Tage übrig"],
+            ["api.example.com", "Warnung", "Zertifikat hat gewechselt"],
+            ["imap.example.org", "OK", "STARTTLS-Anmeldung erfolgreich"]
           ].map(([host, status, detail]) => (
-            <div className={`visual-row visual-${status.toLowerCase()}`} key={host}>
+            <div className={`visual-row visual-${status === "OK" ? "ok" : "warning"}`} key={host}>
               <span>{status}</span>
               <strong>{host}</strong>
               <small>{detail}</small>
@@ -61,37 +65,46 @@ export function FrontPage({ setupRequired, registrationEnabled, onAuth, onRegist
         </div>
       </section>
 
-      <section className="frontpage-strip" aria-label="Core counters">
-        <div><strong>30 / 14 / 7</strong><span>expiry thresholds</span></div>
-        <div><strong>SMTP, IMAP, POP3</strong><span>STARTTLS and SSL checks</span></div>
-        <div><strong>Public pages</strong><span>customer-facing status</span></div>
-        <div><strong>Prometheus</strong><span>metrics for Grafana</span></div>
+      <section className="frontpage-strip" aria-label="Kennzahlen">
+        <div><strong>30 / 14 / 7</strong><span>Tage Vorwarnung, einstellbar</span></div>
+        <div><strong>SMTP, IMAP, POP3</strong><span>STARTTLS und direktes TLS</span></div>
+        <div><strong>Statusseiten</strong><span>für Kunden sichtbar</span></div>
+        <div><strong>Prometheus</strong><span>Kennzahlen für Grafana</span></div>
       </section>
 
       <section className="frontpage-section" id="features">
         <div>
-          <span className="eyebrow">Built for operators</span>
-          <h2>Certificate monitoring plus the service checks around it.</h2>
-          <p className="muted">The goal is a calm control room for certificate operations, not another noisy alert source.</p>
+          <span className="eyebrow">Für Betreiber gebaut</span>
+          <h2>Zertifikate überwachen und die Dienste gleich mit.</h2>
+          <p className="muted">Ein ruhiger Leitstand für den Zertifikatsbetrieb: so viele Meldungen wie nötig, so wenige wie möglich.</p>
         </div>
         <div className="frontpage-grid">
-          <Feature icon={<ShieldCheck />} title="Certificate intelligence" text="Expiry windows, SAN and hostname validation, issuer and fingerprint changes, chain checks, and TLS grading." />
-          <Feature icon={<Server />} title="Protocol coverage" text="HTTPS, TCP TLS, SMTP, IMAP, POP3, FTP, SSH, DNS, login checks, and STARTTLS/SSL transport modes." />
-          <Feature icon={<Bell />} title="Quiet alerting" text="Notification routing, deduplication, recovery messages, escalation timing, quiet hours, and maintenance windows." />
-          <Feature icon={<Radar />} title="Change awareness" text="Certificate Transparency watch, DNS resolver comparison, SSL Labs assessments, and change notifications." />
+          <Feature icon={<ShieldCheck />} title="Zertifikate" text="Restlaufzeit, Namen und SANs, Aussteller und Fingerabdruck, die ganze Kette bis zur Wurzel und eine Note für die TLS-Einstellung." />
+          <Feature icon={<Server />} title="Dienste" text="HTTPS, TCP mit TLS, SMTP, IMAP, POP3, FTP, SSH und DNS, dazu Anmeldungen und beide Wege für Mail: STARTTLS und direktes TLS." />
+          <Feature icon={<Bell />} title="Meldungen mit Ruhe" text="Empfänger je Kennzeichnung, keine Wiederholung derselben Sache, Entwarnung nach der Behebung, Eskalation nach Zeit, Ruhezeiten und Wartungsfenster." />
+          <Feature icon={<Radar />} title="Veränderungen" text="Certificate Transparency im Blick, Vergleich mehrerer DNS-Auflöser, SSL-Labs-Bewertung und eine Nachricht, sobald sich etwas ändert." />
         </div>
       </section>
 
       <section className="frontpage-section frontpage-operations" id="operations">
         <div>
-          <span className="eyebrow">Self-hosted by default</span>
-          <h2>Deploy it like infrastructure.</h2>
-          <p className="muted">Run it with Docker Compose, keep data in a local bind mount, and update with your existing Watchtower flow.</p>
+          <span className="eyebrow">Läuft bei dir</span>
+          <h2>Ausrollen wie jede andere Infrastruktur.</h2>
+          <p className="muted">Ein Container, die Daten daneben auf der Platte. Mit Docker Compose gestartet, mit deinem gewohnten Weg aktualisiert.</p>
         </div>
         <div className="frontpage-command">
           <LockKeyhole size={18} />
-          <code>curl -fsSL https://raw.githubusercontent.com/brightcolor/crt.watch/main/scripts/quickstart.sh | sudo bash</code>
+          <code>docker run -d -p 8080:8080 -v ./data:/data ghcr.io/brightcolor/crt-watch:latest</code>
         </div>
+      </section>
+
+      <section className="frontpage-close">
+        <div>
+          <span className="eyebrow">Anfangen</span>
+          <h2>Ein Zertifikat eintragen reicht für den Anfang.</h2>
+          <p>Trag deine erste Adresse ein, und du siehst innerhalb einer Minute, wie es um sie steht.</p>
+        </div>
+        <button className="btn btn-primary btn-lg" type="button" onClick={primaryAction}>{primaryLabel} <ArrowRight size={16} /></button>
       </section>
     </main>
   );
