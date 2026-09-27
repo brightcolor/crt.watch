@@ -58,9 +58,8 @@
 .frontpage .frontpage-brand { color: #ffffff; }
 .frontpage .frontpage-nav a:hover { color: var(--bc-yellow); }
 .frontpage .frontpage-brand {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  text-transform: lowercase;
+  font-size: 1.15rem;
+  font-weight: 700;
 }
 
 /* --- Hero ---------------------------------------------------------------- */

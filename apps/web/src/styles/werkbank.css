@@ -98,12 +98,12 @@ code, kbd, samp, pre, .mono, .host, .fingerprint { font-family: var(--font-mono)
   background: var(--bc-rail);
 }
 
+/* Der Produktname steht klein; Anton steht im Haus nur in Versalien, deshalb
+   trägt ihn hier die Textschrift. */
 .crtwatch-adminlte .brand-text {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  font-weight: 400;
+  font-size: 1.15rem;
+  font-weight: 700;
   letter-spacing: .01em;
-  text-transform: lowercase;
   color: #ffffff;
 }
 
@@ -606,9 +606,8 @@ button:focus-visible {
 }
 
 .login-panel .brand-line {
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  text-transform: lowercase;
+  font-size: 1.05rem;
+  font-weight: 700;
   color: var(--bs-emphasis-color);
 }
 
@@ -722,9 +721,8 @@ button:focus-visible {
 }
 
 .login-aside .brand-line {
-  font-family: var(--font-display);
-  font-size: 1.35rem;
-  text-transform: lowercase;
+  font-size: 1.15rem;
+  font-weight: 700;
   color: #ffffff;
 }
 

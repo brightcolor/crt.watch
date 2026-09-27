@@ -1,4 +1,4 @@
-import { ArrowRight, Bell, LockKeyhole, Radar, Server, ShieldCheck } from "lucide-react";
+import { ArrowRight, Bell, Radar, Server, ShieldCheck } from "lucide-react";
 import type { ReactNode } from "react";
 import { BrandMark } from "../components/BrandMark";
 
@@ -25,7 +25,6 @@ export function FrontPage({ setupRequired, registrationEnabled, onAuth, onRegist
         </a>
         <nav aria-label="Seitennavigation">
           <a href="#features">Was geprüft wird</a>
-          <a href="#operations">Betrieb</a>
           {!setupRequired && registrationEnabled && <button className="btn btn-outline-secondary" type="button" onClick={onRegister}>Konto anlegen</button>}
           <button className="btn btn-primary" type="button" onClick={onAuth}>{setupRequired ? "Einrichten" : "Anmelden"}</button>
         </nav>
@@ -83,18 +82,6 @@ export function FrontPage({ setupRequired, registrationEnabled, onAuth, onRegist
           <Feature icon={<Server />} title="Dienste" text="HTTPS, TCP mit TLS, SMTP, IMAP, POP3, FTP, SSH und DNS, dazu Anmeldungen und beide Wege für Mail: STARTTLS und direktes TLS." />
           <Feature icon={<Bell />} title="Meldungen mit Ruhe" text="Empfänger je Kennzeichnung, keine Wiederholung derselben Sache, Entwarnung nach der Behebung, Eskalation nach Zeit, Ruhezeiten und Wartungsfenster." />
           <Feature icon={<Radar />} title="Veränderungen" text="Certificate Transparency im Blick, Vergleich mehrerer DNS-Auflöser, SSL-Labs-Bewertung und eine Nachricht, sobald sich etwas ändert." />
-        </div>
-      </section>
-
-      <section className="frontpage-section frontpage-operations" id="operations">
-        <div>
-          <span className="eyebrow">Läuft bei dir</span>
-          <h2>Ausrollen wie jede andere Infrastruktur.</h2>
-          <p className="muted">Ein Container, die Daten daneben auf der Platte. Mit Docker Compose gestartet, mit deinem gewohnten Weg aktualisiert.</p>
-        </div>
-        <div className="frontpage-command">
-          <LockKeyhole size={18} />
-          <code>docker run -d -p 8080:8080 -v ./data:/data ghcr.io/brightcolor/crt-watch:latest</code>
         </div>
       </section>
 
