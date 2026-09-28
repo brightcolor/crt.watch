@@ -698,8 +698,13 @@ button:focus-visible {
 
 .login {
   display: grid;
-  grid-template-columns: minmax(0, 420px) minmax(0, 1fr);
+  /* Two equal halves, the way the house sets a sign-in: a fixed left column
+     leaves the card adrift in the space beside it. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   align-items: stretch;
+  /* The base rule centres both halves, which leaves the onyx side floating
+     as a narrow block inside its column. */
+  justify-items: stretch;
   gap: 0;
   /* Full bleed: the onyx half runs to the edge of the window. */
   width: 100%;

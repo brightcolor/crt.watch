@@ -1,6 +1,6 @@
 {
   "name": "@crtwatch/web",
-  "version": "0.20.1",
+  "version": "0.20.2",
   "type": "module",
   "scripts": {
     "dev": "vite --host 0.0.0.0 --port 5173",

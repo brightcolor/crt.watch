@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.20.2 - 2026-09-28
+
+- The sign-in stands in two equal halves again. A fixed 420 px column left the greeting as a narrow block with the card adrift beside it; the page now splits down the middle, the way the house sets a sign-in. The base rule centres both halves, so the onyx side needed to be told to fill its column.
+
 ## 0.20.1 - 2026-09-28
 
 - Fixed the public front page reading the dark palette. The colour mode defaults to dark when a visitor has no stored preference, so a first-time visitor met ink-coloured text on light panels: the demo heading landed at a contrast of 1.04. The public surface is light by design and now keeps its palette whatever the application around it is set to, and the document ground follows it while the page is on screen.
