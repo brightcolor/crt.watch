@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.21.0 - 2026-09-28
+
+Every entry below names something that was measured on the running application, not read off the source.
+
+- Card titles were drawn in Anton at weight 800 with negative tracking. Anton ships one weight, so the browser synthesised the bold and the condensed capitals ran into each other. Titles now carry one weight and open tracking, on a head strip that separates them from the fields below.
+- A heading inside a form section came out at 19 px while the card title above it sat at 16 px, so the subordinate line shouted louder than the one it belongs under. Sub-headings are quiet labels on a rule.
+- The search field in the top bar drew two edges: one on the form, one on the input inside it, with the magnifier stranded between them. The form is the field now, and the icon sits in it.
+- The top bar held three control heights and two type sizes in one row. One height, one size, one gap.
+- Form controls used three different edges: a 1.2:1 hairline on most, the house tone on the search field, and none at all on the date and time controls, which were also 2 px shorter than everything else. One edge everywhere, at 3.4:1 against the card, so a field looks like a field.
+- The DNS card ran its first four rows through the key/value grid and the resolver rows through a flex row with space-between, so the same card read left-aligned at the top and edge-aligned below. One grid for both, and every row starts its columns in the same place.
+- The check history drew 24 identical rows and the delivery log 25, which pushed one column of the page far past the other. Both keep their own scroll, so a card stays the size of a card.
+- A count of zero stood at 2.2:1 — present and unreadable. Quiet tone at full strength.
+- The state of a monitor row was a circle, the one round shape in a surface built from 6 and 12 px corners. It carries the row's colour as a square field with the drawing in ink, like the signal square.
+- The remaining lifetime was a 3 px line directly under the number and read as a stray underline. It has its own line and a track to be read against.
+- The chosen half of the grouped/list switch was a white button on a white card, so nothing said which of the two was on. Ink in the light surface, yellow in the dark one.
+- The TLS grade sat in a pale outline, quieter than the row it judges. It carries its tone as a field at the size the other pills use.
+- A group of checkboxes sat on a tinted field with no edge and read as a grey blob. It has the hairline every other frame in the workbench uses.
+- At 320 px the resolver list pushed the page 17 px past the window. Long host lists break, and below 768 px the three columns become three lines.
+- The footer floated in the empty space below the content. A rule ties it to the page.
+
 ## 0.20.2 - 2026-09-28
 
 - The sign-in stands in two equal halves again. A fixed 420 px column left the greeting as a narrow block with the card adrift beside it; the page now splits down the middle, the way the house sets a sign-in. The base rule centres both halves, so the onyx side needed to be told to fill its column.

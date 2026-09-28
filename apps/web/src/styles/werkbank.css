@@ -782,3 +782,381 @@ button:focus-visible {
   .login-aside { padding: 1.5rem; }
   .login-greeting { font-size: 2.5rem; }
 }
+
+/* ---------------------------------------------------------------------------
+   Feinschliff: measured on the running application
+
+   Everything below fixes something that was measured on the rendered page, not
+   guessed from the source. Each block names what it found.
+   --------------------------------------------------------------------------*/
+
+/* --- Card heads ---------------------------------------------------------- */
+
+/* Measured: the card title came out as Anton at weight 800 with negative
+   tracking. Anton ships one weight, so the browser drew a fake bold and the
+   condensed capitals ran into each other. One weight, open tracking, and a
+   head strip that separates the title from the fields below it. */
+.crtwatch-adminlte .panel > h3:first-of-type,
+.crtwatch-adminlte .card-header,
+.crtwatch-adminlte .card-header > h2,
+.crtwatch-adminlte .card-header > h3,
+.crtwatch-adminlte .card-title,
+.panel > h3:first-of-type {
+  font-family: var(--font-display);
+  font-weight: 400;
+  font-size: 1.0625rem;
+  letter-spacing: .045em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  color: var(--bs-emphasis-color);
+}
+
+.crtwatch-adminlte .panel > h3:first-of-type,
+.panel > h3:first-of-type {
+  min-height: 2.75rem;
+  background: var(--bc-head);
+  border-bottom: 1px solid var(--bc-rule);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  padding: .45rem 1rem;
+}
+
+/* A panel that carries an action beside its title keeps both on one line. */
+.crtwatch-adminlte .panel > h3:first-of-type > .btn,
+.crtwatch-adminlte .panel > h3:first-of-type > .count {
+  margin-left: auto;
+}
+
+/* --- Sub-headings inside a card ------------------------------------------ */
+
+/* Measured: a heading inside a form section rendered in Anton at 19 px while
+   the card title above it sat at 16 px, so the subordinate line shouted louder
+   than the one it belongs under. A sub-heading is a quiet label with a rule. */
+.crtwatch-adminlte .panel .form-section > h3,
+.crtwatch-adminlte .panel > h3 ~ h3,
+.crtwatch-adminlte .panel .form-section > h4,
+.panel .form-section > h3 {
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-size: .75rem;
+  letter-spacing: .12em;
+  line-height: 1.4;
+  text-transform: uppercase;
+  color: var(--bc-text-quiet);
+  margin: .5rem 0 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--bc-rule);
+}
+
+/* The section's own explanation follows the label without a gap of its own. */
+.crtwatch-adminlte .panel .form-section > h3 + .muted,
+.crtwatch-adminlte .panel > h3 ~ h3 + .muted {
+  margin-top: -.35rem;
+}
+
+/* --- Top bar ------------------------------------------------------------- */
+
+/* Measured: the search form and the input inside it both drew a border, so the
+   field had two edges and the magnifier sat outside the inner one. The form is
+   the field; the input lives in it. */
+.crtwatch-adminlte .header-search {
+  display: flex;
+  align-items: center;
+  gap: .5rem;
+  height: var(--control-h);
+  border: 1px solid var(--bc-field-edge);
+  border-radius: var(--radius);
+  background: var(--bs-body-bg);
+  padding: 0 .75rem;
+}
+
+.crtwatch-adminlte .header-search:focus-within {
+  border-color: var(--bc-focus);
+  box-shadow: 0 0 0 3px rgba(var(--bs-primary-rgb), .18);
+}
+
+.crtwatch-adminlte .header-search > svg {
+  flex: none;
+  color: var(--bc-text-quiet);
+}
+
+.crtwatch-adminlte .header-search input,
+.crtwatch-adminlte .header-search .form-control {
+  height: auto;
+  min-height: 0;
+  flex: 1 1 auto;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  padding: 0;
+}
+
+/* Measured: bell 30 px, primary button 38 px, avatar 38 px, two font sizes in
+   one row. One height, one size, one gap. */
+.crtwatch-adminlte .header-actions { gap: .625rem; }
+
+.crtwatch-adminlte .header-actions .btn,
+.crtwatch-adminlte .header-actions .avatar-button {
+  height: var(--control-h);
+  min-height: var(--control-h);
+  font-size: .8125rem;
+}
+
+.crtwatch-adminlte .header-actions .btn-icon {
+  width: var(--control-h);
+  padding: 0;
+}
+
+.crtwatch-adminlte .header-actions .avatar-button { width: var(--control-h); }
+.crtwatch-adminlte .header-actions .avatar { width: 100%; height: 100%; }
+
+/* --- Fields -------------------------------------------------------------- */
+
+/* Measured: the date and time controls of the maintenance builder came out at
+   36 px without an edge while every other field was 38 px with one. */
+.crtwatch-adminlte input[type="date"],
+.crtwatch-adminlte input[type="time"],
+.crtwatch-adminlte input[type="datetime-local"],
+.crtwatch-adminlte input[type="month"] {
+  min-height: var(--control-h);
+  border: 1px solid var(--bc-field-edge);
+  border-radius: var(--radius);
+  background: var(--bs-body-bg);
+}
+
+/* --- Rows in a card ------------------------------------------------------ */
+
+/* Measured: the DNS card put four rows through the key/value grid and the
+   resolver rows through a flex row with space-between, so the same card read
+   left-aligned at the top and edge-aligned below. Rows that carry a name and a
+   value now use the grid the key/value rows use. */
+.crtwatch-adminlte .rows-kv > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 9.5rem) minmax(0, 1fr) minmax(0, 14rem);
+  gap: .3rem .75rem;
+  align-items: baseline;
+  justify-content: initial;
+}
+
+/* Every cell starts at the same place in every row; a row that carries no
+   third value leaves the column empty rather than pushing its value across the
+   card. */
+.crtwatch-adminlte .rows-kv > div > * {
+  justify-self: start;
+  text-align: start;
+}
+
+/* A log row reads left to right: state, time, what happened. */
+.crtwatch-adminlte .rows-log > div {
+  display: grid;
+  grid-template-columns: auto 10.5rem minmax(0, 1fr);
+  gap: .3rem .75rem;
+  align-items: baseline;
+  justify-content: initial;
+}
+
+.crtwatch-adminlte .rows-log > div > span:last-child {
+  color: var(--bc-text-quiet);
+  text-align: left;
+}
+
+/* --- Lists that keep growing --------------------------------------------- */
+
+/* Measured: the check history drew 24 identical rows and the delivery log 25,
+   which pushed one column of the page far past the other and left the reader
+   scrolling past the same sentence two dozen times. Both keep their own scroll
+   now, so the card stays the size of a card. */
+.crtwatch-adminlte .rows-log,
+.crtwatch-adminlte .log-list {
+  max-height: 22rem;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: .25rem;
+}
+
+/* --- Zero counts --------------------------------------------------------- */
+
+/* Measured: a count of zero was drawn in the quiet tone at 55 % opacity, which
+   left it at 2.2:1 — the number was there and could not be read. Quiet tone,
+   full strength. */
+.crtwatch-adminlte .stat-item.is-zero .stat-value {
+  color: var(--bc-text-quiet);
+  opacity: 1;
+}
+
+/* --- Footer -------------------------------------------------------------- */
+
+/* Measured: the footer floated in the empty space below the content with
+   nothing tying it to the page. A rule above it, the same gutter as the
+   content. */
+.crtwatch-adminlte .app-footer {
+  border-top: 1px solid var(--bc-rule);
+  background: transparent;
+  color: var(--bc-text-quiet);
+  font-size: .8125rem;
+}
+
+/* --- One edge for every field -------------------------------------------- */
+
+/* Measured: form controls drew a 1 px edge in #e3e0d8, which stands at 1.2:1
+   against the white card, while the search field and the date controls drew
+   theirs in the house tone. A field is recognisable as a field: one edge
+   everywhere, at 3.4:1 against the card. */
+.crtwatch-adminlte input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+.crtwatch-adminlte select,
+.crtwatch-adminlte textarea,
+.crtwatch-adminlte .tag-input,
+.crtwatch-adminlte .form-control,
+.crtwatch-adminlte .form-select {
+  border: 1px solid var(--bc-field-edge);
+}
+
+/* The pickers are the field, so the input inside them keeps no edge of its
+   own. */
+.crtwatch-adminlte .tag-input input,
+.crtwatch-adminlte .header-search input,
+.crtwatch-adminlte .toolbar input {
+  border: 0;
+}
+
+/* --- The monitor row ----------------------------------------------------- */
+
+/* Measured: the state of a row was drawn as a circle, the one round shape in a
+   surface built from 6 and 12 px corners. It carries the row's colour as a
+   field with the drawing in ink, like the signal square. */
+.crtwatch-adminlte .status-mark {
+  width: 1.625rem;
+  height: 1.625rem;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bc-ink);
+  background: var(--tone, var(--bc-lime));
+  color: var(--bc-ink);
+}
+
+.crtwatch-adminlte .status-mark:hover {
+  box-shadow: 0 0 0 3px rgba(var(--tone-rgb, 191, 213, 53), .35);
+}
+
+:root[data-theme="dark"] .crtwatch-adminlte .status-mark { border-color: var(--bc-rule); }
+
+/* Measured: the remaining lifetime was a 3 px line directly under the number,
+   which read as a stray underline rather than a meter. It keeps its own line,
+   with a track it can be read against. */
+.crtwatch-adminlte .lifetime-meter {
+  height: 5px;
+  max-width: 6rem;
+  margin-top: .3rem;
+  border-radius: 3px;
+  border: 1px solid var(--bc-rule);
+  background: var(--bc-head);
+}
+
+.crtwatch-adminlte .lifetime-meter > i,
+.crtwatch-adminlte .lifetime-meter > span {
+  border-radius: 2px;
+  background: var(--tone, var(--bc-lime));
+}
+
+/* --- Selected among several ---------------------------------------------- */
+
+/* Measured: the chosen half of the grouped/list switch was drawn as a white
+   button on a white card, so nothing said which of the two was on. The house
+   marks a choice with ink in the light surface and yellow in the dark one. */
+.crtwatch-adminlte .btn-secondary,
+.crtwatch-adminlte .btn-check:checked + .btn-outline-secondary {
+  --bs-btn-color: #ffffff;
+  --bs-btn-bg: var(--bc-ink);
+  --bs-btn-border-color: var(--bc-ink);
+  --bs-btn-hover-color: #ffffff;
+  --bs-btn-hover-bg: #000000;
+  --bs-btn-hover-border-color: #000000;
+  --bs-btn-active-bg: #000000;
+}
+
+:root[data-theme="dark"] .crtwatch-adminlte .btn-secondary,
+:root[data-theme="dark"] .crtwatch-adminlte .btn-check:checked + .btn-outline-secondary {
+  --bs-btn-color: var(--bc-ink);
+  --bs-btn-bg: var(--bc-yellow);
+  --bs-btn-border-color: var(--bc-yellow);
+  --bs-btn-hover-color: var(--bc-ink);
+  --bs-btn-hover-bg: #ffe066;
+  --bs-btn-hover-border-color: #ffe066;
+}
+
+/* --- The grade of a TLS setup -------------------------------------------- */
+
+/* Measured: the grade sat in a pale outline at 10 px, quieter than the row it
+   judges. It keeps the pill shape of a state, at the size the other pills use
+   and with its tone as a field. */
+.crtwatch-adminlte .grade-pill {
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--bc-ink);
+  background: var(--bc-lime);
+  color: var(--bc-ink);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .06em;
+  padding: .15rem .4rem;
+}
+
+.crtwatch-adminlte .grade-pill.grade-b { background: var(--bc-lime); }
+.crtwatch-adminlte .grade-pill.grade-c,
+.crtwatch-adminlte .grade-pill.grade-d { background: var(--bc-yellow); }
+.crtwatch-adminlte .grade-pill.grade-e,
+.crtwatch-adminlte .grade-pill.grade-f,
+.crtwatch-adminlte .grade-pill.grade-t { background: var(--bc-pink); color: #ffffff; }
+
+:root[data-theme="dark"] .crtwatch-adminlte .grade-pill { border-color: var(--bc-rule); }
+
+/* --- Counters in the head of a group ------------------------------------- */
+
+/* Measured: a count of zero beside a filter stood at 2.6:1. Quiet, readable. */
+.crtwatch-adminlte .filter-chip .count,
+.crtwatch-adminlte .chip .count {
+  color: var(--bc-text-quiet);
+  opacity: 1;
+}
+
+/* --- Groups inside a card ------------------------------------------------ */
+
+/* Measured: a group of checkboxes sat on a tinted field with no edge, so it
+   read as a grey blob rather than as a group. The same hairline every other
+   frame in the workbench uses. */
+.crtwatch-adminlte .checks:not(:has(> label:only-child)),
+.crtwatch-adminlte .datetime-builder,
+.crtwatch-adminlte .member-picker,
+.crtwatch-adminlte .embed-card,
+.crtwatch-adminlte .form-steps {
+  border: 1px solid var(--bc-rule);
+  border-radius: var(--radius);
+  background: var(--bc-head);
+}
+
+/* The base rules push the last cell of a stack row to the right edge with an
+   automatic margin. In a row that belongs to a grid, that margin would undo
+   the columns, so it goes. */
+.crtwatch-adminlte .rows-kv > div > small,
+.crtwatch-adminlte .rows-kv > div > span:not(.pill):not(.status):last-child,
+.crtwatch-adminlte .rows-log > div > small,
+.crtwatch-adminlte .rows-log > div > span:not(.pill):not(.status):last-child {
+  margin-left: 0;
+  justify-self: start;
+  text-align: start;
+}
+
+/* A long host list has to be allowed to break, and on a phone the three
+   columns become three lines. Measured: at 320 px the resolver list pushed the
+   page 17 px past the window. */
+.crtwatch-adminlte .rows-kv > div > *,
+.crtwatch-adminlte .rows-log > div > * {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 767.98px) {
+  .crtwatch-adminlte .rows-kv > div,
+  .crtwatch-adminlte .rows-log > div {
+    grid-template-columns: minmax(0, 1fr);
+    gap: .15rem;
+  }
+}

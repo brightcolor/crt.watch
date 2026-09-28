@@ -119,7 +119,7 @@ export function MonitorDetail({ monitor, results, incidents, onBack, onEdit, onC
         {incidents[0]?.notes?.length > 0 && <div className="stack-list">{incidents[0].notes.map((item) => <div key={item.id}><strong>{item.author}</strong><span>{item.text}</span><small>{dateTime(item.createdAt)}</small></div>)}</div>}
       </Panel>
       <Panel title="Check history">
-        <div className="stack-list">{results.map((result) => <div key={result.id}><StatusPill status={result.status} /><span>{dateTime(result.checkedAt)}</span><span>{result.message}</span></div>)}</div>
+        <div className="stack-list rows-log">{results.map((result) => <div key={result.id}><StatusPill status={result.status} /><span>{dateTime(result.checkedAt)}</span><span>{result.message}</span></div>)}</div>
       </Panel>
     </section>
   );
@@ -170,7 +170,7 @@ function DnsPanel({ result }: { result?: CheckResult | null }) {
     <Info label="Authoritative nameservers" value={dns.authoritativeNameservers.join(", ")} />
     <Info label="DNS checked" value={`${dateTime(dns.checkedAt)}${dns.fresh ? "" : " (cached)"}`} />
     {!!dns.mismatches.length && <div className="callout callout-warning"><strong>Resolver differences detected</strong><p>{dns.mismatches.join(" ")}</p></div>}
-    <div className="stack-list">
+    <div className="stack-list rows-kv">
       {dns.checks.map((check) => (
         <div key={`${check.kind}-${check.name}`}>
           <strong>{check.name}</strong>
