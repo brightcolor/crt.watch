@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.20.0 - 2026-09-28
+
+- The application wears the bright color workbench. An onyx rail on the left carries the modules with a yellow edge on the open one, a 60 px top bar holds search, alerts and the account, and the panels sit as white cards on warm paper. Headings are set in Anton capitals, running text in Atkinson Hyperlegible, hostnames and measured values in IBM Plex Mono.
+- Colour carries meaning throughout: lime says running, yellow says this wants attention, pink says this is urgent. The same three drive the status pills, the meters, the alert bands and the monitor rows, in light and in dark mode.
+- The public front page is its own surface. It presents with square edges, two-pixel ink borders, a cyan band carrying the opening line, tiles edged in the house colours and a closing band in ink with a yellow heading.
+- The front page speaks German and addresses the reader directly; the application behind the sign-in stays English. The page subtree carries `lang="de"`, so a screen reader switches voice for it and keeps the document language for everything else.
+- The three type faces ship inside the image. The page asks no font service for anything at run time, so the first render costs no third-party request and the surface is complete on a closed network.
+- The front page describes what the product does and leaves the question of where the source lives to the README.
+- Measured before release: every visible text on eleven views reaches AA with reserve, in light and in dark mode, and every width from 320 to 1440 px stays inside the window.
+
 ## 0.19.0 - 2026-09-03
 
 - Split the product into a public surface and an application, by address. The front page, sign-in and registration live at `/`, `/login` and `/register`; everything that needs a session lives under `/app`. Previously all of it shared one URL and the screen was chosen by internal state, so a link never said what it opened.
