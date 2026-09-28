@@ -160,7 +160,10 @@
   --bc-chart-fill: rgba(238, 49, 138, .18);
 }
 
-:root[data-theme="light"] {
+/* The public surface is light only, so it keeps this palette even while the
+   application around it runs in dark mode. */
+:root[data-theme="light"],
+:root[data-theme="dark"] .frontpage {
   color-scheme: light;
   /* Paper ground, white cards: the workbench look of the house. */
   --bs-body-bg: #f2f0eb;

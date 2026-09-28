@@ -14,6 +14,18 @@
   color: var(--bc-ink);
 }
 
+/* While the public surface is on screen the document ground follows it, so the
+   area beside and below the page is paper even when the visitor's browser or
+   the stored preference asks for the dark application. */
+:root:has(.frontpage),
+:root:has(.frontpage) body {
+  color-scheme: light;
+  background: var(--bc-paper);
+  color: var(--bc-ink);
+}
+
+.frontpage { min-height: 100vh; }
+
 /* Square corners, ink edges, no soft shadows. */
 .frontpage .btn,
 .frontpage .frontpage-card,
@@ -47,7 +59,10 @@
 .frontpage .frontpage-nav::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 50%;
+  /* Two pixels past the lower edge: the head's own border stops at the width of
+     the nav, so without this the page ground shows as a hairline left and right
+     of it. */
+  inset: 0 auto -2px 50%;
   width: 100vw;
   transform: translateX(-50%);
   background: var(--bc-ink);
@@ -60,6 +75,16 @@
 .frontpage .frontpage-brand {
   font-size: 1.15rem;
   font-weight: 700;
+}
+
+/* On the ink head the mark becomes a yellow square carrying the ink drawing:
+   the house pairing for a marker. It inherits white from the head otherwise,
+   and the chip behind it is near-white. */
+.frontpage .frontpage-brand span {
+  border-radius: 0;
+  border: 1px solid var(--bc-ink);
+  background: var(--bc-yellow);
+  color: var(--bc-ink);
 }
 
 /* --- Hero ---------------------------------------------------------------- */
@@ -191,6 +216,19 @@
 .frontpage .frontpage-card:nth-child(3) { border-top: 4px solid var(--bc-lime); }
 .frontpage .frontpage-card:nth-child(4) { border-top: 4px solid var(--bc-yellow); }
 
+/* Each card's icon repeats the colour of its top edge as a square field with
+   the ink drawing on it, the way the signal square works elsewhere. */
+.frontpage .frontpage-card > span {
+  border-radius: 0;
+  border: 1px solid var(--bc-ink);
+  color: var(--bc-ink);
+}
+
+.frontpage .frontpage-card:nth-child(1) > span { background: var(--bc-magenta); }
+.frontpage .frontpage-card:nth-child(2) > span { background: var(--bc-cyan); }
+.frontpage .frontpage-card:nth-child(3) > span { background: var(--bc-lime); }
+.frontpage .frontpage-card:nth-child(4) > span { background: var(--bc-yellow); }
+
 /* --- The command line ---------------------------------------------------- */
 
 /* The install line is the page's one dark band: ink ground, mono type. */
@@ -218,13 +256,21 @@
 /* Out of the absolute corner and back into the flow: the panel follows the
    band and steps over its lower edge. */
 .frontpage .frontpage-visual {
-  position: static;
+  /* Relative with a layer of its own: the copy above carries z-index, so a
+     panel in plain flow would slide behind the band it is meant to overlap. */
+  position: relative;
+  z-index: 1;
   width: min(44rem, 92%);
   margin: -3rem 0 0 auto;
   background: #ffffff;
+  /* Straight and on a hard offset: the house draws depth that way, and a tilt
+     renders every hairline inside the panel soft. */
+  transform: none;
+  box-shadow: 10px 10px 0 var(--bc-ink);
 }
 .frontpage .visual-row,
-.frontpage .visual-header {
+.frontpage .visual-header,
+.frontpage .visual-score {
   border-radius: 0;
   border: 1px solid var(--bc-ink);
   background: var(--bc-paper);
@@ -281,3 +327,21 @@
 .frontpage .frontpage-close .eyebrow { color: #ffffff; }
 .frontpage .frontpage-close .eyebrow::before { background: var(--bc-cyan); }
 .frontpage .frontpage-close .btn:hover { box-shadow: 3px 3px 0 var(--bc-yellow); }
+
+/* --- Narrow screens -------------------------------------------------------- */
+
+@media (max-width: 767.98px) {
+  /* Stacked, the panel would land on the call below the opening line, so it
+     follows the band instead of stepping over it. */
+  .frontpage .frontpage-visual {
+    width: 100%;
+    margin: 1.5rem 0 0;
+    box-shadow: 6px 6px 0 var(--bc-ink);
+  }
+}
+
+@media (max-width: 575.98px) {
+  /* The head keeps the two actions. The section link would wrap onto a line of
+     its own above the logo, and it stands in the opening block anyway. */
+  .frontpage .frontpage-nav nav > a[href="#features"] { display: none; }
+}

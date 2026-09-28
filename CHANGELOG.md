@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.20.1 - 2026-09-28
+
+- Fixed the public front page reading the dark palette. The colour mode defaults to dark when a visitor has no stored preference, so a first-time visitor met ink-coloured text on light panels: the demo heading landed at a contrast of 1.04. The public surface is light by design and now keeps its palette whatever the application around it is set to, and the document ground follows it while the page is on screen.
+- The product mark on the ink head sits on a yellow square and is drawn in ink. It inherited the white of the head and stood on a near-white chip, which left the head with an empty box beside the name.
+- The head runs into the band below it without the hairline that showed left and right of it: the head's own lower border ends with the content width, so the ink field now covers those two pixels as well.
+- The demo panel stands straight on a hard offset. A one-degree tilt left every hairline inside it soft, and the panel kept its layer, so it steps over the band as intended.
+- Each feature card carries its icon as a square field in the card's own colour with the ink drawing, the way the signal square works elsewhere on the page.
+- On a phone the call below the opening line stays reachable: stacked, the demo panel used to land on top of it. The head keeps its two actions there and leaves the section link to the opening block, so it fits on one row again.
+
 ## 0.20.0 - 2026-09-28
 
 - The application wears the bright color workbench. An onyx rail on the left carries the modules with a yellow edge on the open one, a 60 px top bar holds search, alerts and the account, and the panels sit as white cards on warm paper. Headings are set in Anton capitals, running text in Atkinson Hyperlegible, hostnames and measured values in IBM Plex Mono.
