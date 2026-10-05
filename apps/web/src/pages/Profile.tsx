@@ -3,7 +3,7 @@ import type { FormEvent } from "react";
 import { api } from "../api/client";
 import { humanize } from "../utils/labels";
 
-export function Profile({ user, tenants, onChangePassword, onLogout, onMfaChanged }: any) {
+export function Profile({ user, tenants, passwordMinLength, onChangePassword, onLogout, onMfaChanged }: any) {
   const [form, setForm] = useState({ currentPassword: "", newPassword: "", confirmPassword: "" });
   const [message, setMessage] = useState("");
   const submit = async (event: FormEvent) => {
@@ -34,8 +34,8 @@ export function Profile({ user, tenants, onChangePassword, onLogout, onMfaChange
         <form className="panel" onSubmit={submit}>
           <h3>Change password</h3>
           <label>Current password<input type="password" autoComplete="current-password" value={form.currentPassword} onChange={(event) => setForm({ ...form, currentPassword: event.target.value })} required /></label>
-          <label>New password<input type="password" autoComplete="new-password" minLength={12} value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })} required /></label>
-          <label>Repeat new password<input type="password" autoComplete="new-password" minLength={12} value={form.confirmPassword} onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })} required /></label>
+          <label>New password<input type="password" autoComplete="new-password" minLength={passwordMinLength} value={form.newPassword} onChange={(event) => setForm({ ...form, newPassword: event.target.value })} required /></label>
+          <label>Repeat new password<input type="password" autoComplete="new-password" minLength={passwordMinLength} value={form.confirmPassword} onChange={(event) => setForm({ ...form, confirmPassword: event.target.value })} required /></label>
           {message && <p className={message === "Password changed." ? "success" : "error"}>{message}</p>}
           <button className="btn btn-primary" type="submit">Save password</button>
         </form>

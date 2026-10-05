@@ -30,6 +30,17 @@ export function Settings(props: any) {
   const [retentionForm, setRetentionForm] = useState(retention);
   const [ctForm, setCtForm] = useState(ctWatch);
   const [ctResult, setCtResult] = useState<any>(null);
+  // The answer of the last test per channel: delivered, or the reason the server gave.
+  const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
+  const testChannel = async (id: string) => {
+    setTestResults((current) => ({ ...current, [id]: { ok: true, message: "Sending test message..." } }));
+    try {
+      await props.onTest(id);
+      setTestResults((current) => ({ ...current, [id]: { ok: true, message: "Test message delivered." } }));
+    } catch (error) {
+      setTestResults((current) => ({ ...current, [id]: { ok: false, message: error instanceof Error ? error.message : "The test message could not be sent. Check the channel settings and try again." } }));
+    }
+  };
   const [routeForm, setRouteForm] = useState({ name: "", tags: [] as string[], severities: ["critical"], channelIds: [] as string[], recipients: {} as Record<string, string>, delayMinutes: 0, enabled: true });
   const fields = useMemo(() => providerFields[channel.type] ?? providerFields.webhook, [channel.type]);
 
@@ -161,7 +172,8 @@ export function Settings(props: any) {
             <div className="channel" key={item.id}>
               <strong>{item.name}</strong>
               <span>{labelFor(item.type)} - {item.enabled ? "enabled" : "disabled"}</span>
-              <div className="actions end"><button className="btn btn-outline-secondary btn-sm" onClick={() => props.onTest(item.id)}>Test</button><button className="btn btn-outline-danger btn-sm btn-icon" title="Delete provider" onClick={() => props.onDeleteChannel(item.id)}><Trash2 size={16} /></button></div>
+              <div className="actions end"><button className="btn btn-outline-secondary btn-sm" onClick={() => void testChannel(item.id)}>Test</button><button className="btn btn-outline-danger btn-sm btn-icon" title="Delete provider" onClick={() => props.onDeleteChannel(item.id)}><Trash2 size={16} /></button></div>
+              {testResults[item.id] && <p className={testResults[item.id].ok ? "form-note" : "error"} role="status">{testResults[item.id].message}</p>}
             </div>
           ))}
           {!channels.length && <span className="muted">No notification providers configured.</span>}

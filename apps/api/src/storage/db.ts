@@ -9,9 +9,12 @@ import { assertWritableDataDirectory } from "./dataDirectory.js";
 
 assertWritableDataDirectory(env.databasePath);
 const sqlite = new Database(env.databasePath);
+// The busy timeout comes first: switching a new file to WAL needs a lock, and a
+// second process opening the same file at that moment (the setup-code command,
+// a parallel test worker) waits for that lock.
+sqlite.pragma("busy_timeout = 5000");
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("synchronous = NORMAL");
-sqlite.pragma("busy_timeout = 5000");
 
 const statements = new Map<string, Database.Statement>();
 const prepared = (sql: string) => {
@@ -44,7 +47,7 @@ class StatementWrapper {
   constructor(private readonly sql: string) {}
 
   run(...params: unknown[]) {
-    prepared(this.sql).run(...bindParams(this.sql, params));
+    return prepared(this.sql).run(...bindParams(this.sql, params));
   }
 
   get(...params: unknown[]) {
@@ -316,7 +319,9 @@ export const migrate = () => {
       type TEXT NOT NULL,
       target TEXT NOT NULL,
       enabled INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL
+      created_at TEXT NOT NULL,
+      tenant_id TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}',
+      page_slug TEXT
     );
     CREATE TABLE IF NOT EXISTS audit_log (
       id TEXT PRIMARY KEY,
@@ -351,7 +356,11 @@ export const migrate = () => {
     "ALTER TABLE audit_log ADD COLUMN metadata_json TEXT NOT NULL DEFAULT '{}';",
     "ALTER TABLE users ADD COLUMN mfa_secret TEXT;",
     "ALTER TABLE users ADD COLUMN mfa_enabled INTEGER NOT NULL DEFAULT 0;",
-    "ALTER TABLE users ADD COLUMN mfa_backup_codes_json TEXT NOT NULL DEFAULT '[]';"
+    "ALTER TABLE users ADD COLUMN mfa_backup_codes_json TEXT NOT NULL DEFAULT '[]';",
+    // Subscriptions made before organizations had their own status pages came from
+    // pages of the default organization, so that is where existing rows belong.
+    `ALTER TABLE status_subscriptions ADD COLUMN tenant_id TEXT NOT NULL DEFAULT '${DEFAULT_TENANT_ID}';`,
+    "ALTER TABLE status_subscriptions ADD COLUMN page_slug TEXT;"
   ]);
   db.exec(`
     CREATE INDEX IF NOT EXISTS idx_tenant_memberships_tenant ON tenant_memberships(tenant_id);
@@ -370,6 +379,7 @@ export const migrate = () => {
     CREATE INDEX IF NOT EXISTS idx_monitors_due ON monitors(enabled, next_check_at);
     CREATE INDEX IF NOT EXISTS idx_check_results_monitor_checked_at ON check_results(monitor_id, checked_at);
     CREATE INDEX IF NOT EXISTS idx_audit_log_tenant_created ON audit_log(tenant_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_status_subscriptions_tenant ON status_subscriptions(tenant_id);
   `);
   try {
     db.exec("ALTER TABLE sessions ADD COLUMN impersonator_user_id TEXT;");
@@ -382,12 +392,7 @@ export const migrate = () => {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, '{}', ?, ?, NULL)
   `).run(DEFAULT_TENANT_ID, "Default organization", "default", "team", "active", 1000, 100, 100, new Date().toISOString(), new Date().toISOString());
   db.prepare("UPDATE tenants SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
-  db.prepare(`
-    INSERT OR IGNORE INTO tenant_memberships (id, tenant_id, user_id, role, status, created_at, updated_at)
-    SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
-      ?, id, CASE WHEN role IN ('admin', 'super_admin') THEN 'owner' ELSE 'viewer' END, 'active', ?, ?
-    FROM users
-  `).run(DEFAULT_TENANT_ID, new Date().toISOString(), new Date().toISOString());
+  adoptAccountsWithoutOrganization();
   db.prepare("UPDATE tenant_memberships SET id = lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))) WHERE id IS NULL OR id = ''").run();
   db.prepare("UPDATE tenant_memberships SET status = 'active' WHERE status IS NULL OR status = ''").run();
   db.prepare("UPDATE tenant_memberships SET updated_at = created_at WHERE updated_at IS NULL OR updated_at = ''").run();
@@ -471,6 +476,28 @@ const snapshotLastGoodDatabase = () => {
   } catch {
     // Snapshotting is best-effort and must never block startup.
   }
+};
+
+/* Accounts from before organizations existed belong to none, so they join the
+   default organization once, as owners if they were administrators. Every later
+   account comes with an organization of its own or an invitation. The step used
+   to run on every start and added each account to the default organization,
+   including accounts of other organizations and accounts an owner had removed;
+   it now runs once, for accounts without any membership, and is marked done in
+   the settings table so it never runs again. */
+const organizationBackfillKey = "migration:default-organization-backfill";
+
+const adoptAccountsWithoutOrganization = () => {
+  if (db.prepare("SELECT key FROM settings WHERE key = ?").get(organizationBackfillKey)) return;
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO tenant_memberships (id, tenant_id, user_id, role, status, created_at, updated_at)
+    SELECT lower(hex(randomblob(4)) || '-' || hex(randomblob(2)) || '-4' || substr(hex(randomblob(2)),2) || '-' || substr('89ab', abs(random()) % 4 + 1, 1) || substr(hex(randomblob(2)),2) || '-' || hex(randomblob(6))),
+      ?, u.id, CASE WHEN u.role IN ('admin', 'super_admin') THEN 'owner' ELSE 'viewer' END, 'active', ?, ?
+    FROM users u
+    WHERE NOT EXISTS (SELECT 1 FROM tenant_memberships tm WHERE tm.user_id = u.id)
+  `).run(DEFAULT_TENANT_ID, now, now);
+  db.prepare("INSERT OR IGNORE INTO settings (key, value_json) VALUES (?, ?)").run(organizationBackfillKey, JSON.stringify({ completedAt: now }));
 };
 
 const addColumns = (statements: string[]) => {
@@ -615,6 +642,8 @@ export const rowToIncident = (row: any): Incident => ({
 
 export const rowToSubscription = (row: any): StatusSubscription => ({
   id: row.id,
+  tenantId: row.tenant_id ?? DEFAULT_TENANT_ID,
+  pageSlug: row.page_slug ?? null,
   tags: parse<string[]>(row.tags_json, []),
   type: row.type === "webhook" ? "webhook" : "email",
   target: row.target,

@@ -302,6 +302,10 @@ export interface IncidentNote {
 
 export interface StatusSubscription {
   id: string;
+  /** The organization whose published status page the subscription was made on. */
+  tenantId: string;
+  /** Slug of that page; null for subscriptions made before pages had their own address. */
+  pageSlug: string | null;
   tags: string[];
   type: "email" | "webhook";
   target: string;

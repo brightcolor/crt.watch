@@ -54,6 +54,7 @@ chown -R "${DATA_UID}:${DATA_GID}" data
 
 if [[ ! -f .env ]]; then
   SESSION_SECRET="${CRTWATCH_SESSION_SECRET:-$(random_secret)}"
+  METRICS_TOKEN="${CRTWATCH_METRICS_TOKEN:-$(random_secret)}"
   cat > .env <<ENV
 NODE_ENV=production
 TZ=${CRTWATCH_TZ:-Europe/Berlin}
@@ -63,12 +64,15 @@ BASE_URL=http://localhost:${APP_PORT}
 DATA_DIR=./data
 DATABASE_PATH=/data/crtwatch.sqlite
 SESSION_SECRET=${SESSION_SECRET}
-TRUST_PROXY=true
+# Behind a reverse proxy, name its addresses or networks, for example TRUST_PROXY=loopback,uniquelocal.
+TRUST_PROXY=false
 COOKIE_SECURE=false
 FRONT_PAGE_ENABLED=true
 PUBLIC_REGISTRATION_ENABLED=true
 ALLOW_PRIVATE_TARGETS=false
 ALLOW_PRIVATE_NOTIFICATION_TARGETS=false
+METRICS_ACCESS=authenticated
+METRICS_TOKEN=${METRICS_TOKEN}
 CHECK_CONCURRENCY=4
 DEFAULT_INTERVAL_SECONDS=3600
 DEFAULT_WARNING_DAYS=30
@@ -76,7 +80,6 @@ DEFAULT_CRITICAL_DAYS=7
 ENV
   chmod 600 .env
   echo "Created ${INSTALL_DIR}/.env"
-  echo "Create the first admin account in the web setup screen."
 else
   echo "Using existing ${INSTALL_DIR}/.env"
 fi
@@ -87,7 +90,8 @@ docker compose up -d
 echo
 echo "crt.watch is starting."
 echo "Open: http://localhost:${APP_PORT}"
-echo "First run: create the admin account in the browser."
+echo "First run: create the admin account in the browser with the setup code."
+echo "Print the setup code: cd ${INSTALL_DIR} && docker compose exec crt-watch node apps/api/dist/cli.js setup-code"
 echo "Data bind mount: ${INSTALL_DIR}/data -> /data"
 echo
 echo "Useful commands:"

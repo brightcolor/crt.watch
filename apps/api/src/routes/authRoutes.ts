@@ -4,60 +4,75 @@ import bcrypt from "bcryptjs";
 import { z } from "zod";
 import { clearSessionCookie, publicUser, requireAuth, setSessionCookie } from "../auth/auth.js";
 import { authenticateLocal, createUserSession } from "../auth/passport.js";
+import { passwordRule } from "../auth/passwords.js";
+import { clearSetupCode, setupCodeCommand, setupCodeMatches, setupRequired } from "../auth/setup.js";
 import { createMfaChallenge, randomToken, verifyMfaChallenge } from "../auth/tokens.js";
 import { env } from "../config/env.js";
 import { authLimiter, mfaAccountLimiter } from "../security/rateLimits.js";
-import { appSettings, teams, tenantInvites, tenants, users } from "../storage/repositories.js";
+import { appSettings, auditLogs, teams, tenantInvites, tenants, users } from "../storage/repositories.js";
 import { decryptSecret, encryptSecret } from "../utils/secrets.js";
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotp } from "../utils/totp.js";
 
 export const authRoutes = Router();
 
 const invalidCode = "The code is not valid. Enter the current 6-digit code from your authenticator app or an unused backup code.";
+const setupClosed = "The setup of this crt.watch instance is complete. Sign in instead, or ask an administrator for an account.";
+const wrongSetupCode = `The setup code is not valid. Use the code from the server log of the current start, or print it on the server with: ${setupCodeCommand}`;
 
 authRoutes.get("/setup-status", (_req, res) => {
-  res.json({ setupRequired: users.count() === 0 });
+  res.json({ setupRequired: setupRequired() });
 });
 
 authRoutes.get("/config", (_req, res) => {
+  const pending = setupRequired();
   res.json({
-    setupRequired: users.count() === 0,
+    setupRequired: pending,
     frontPageEnabled: env.frontPageEnabled,
-    publicRegistrationEnabled: publicRegistrationEnabled()
+    publicRegistrationEnabled: publicRegistrationEnabled(),
+    passwordMinLength: env.passwordMinLength,
+    // Where the operator finds the setup code; the code itself never leaves the server here.
+    ...(pending ? { setupCodeCommand } : {})
   });
 });
 
+/* Creates the first platform administrator. It needs the setup code from the
+   server log or the setup-code command and is closed while an administrator
+   exists; failed attempts count against the sign-in limit. */
 authRoutes.post("/setup", authLimiter, async (req, res) => {
-  if (users.count() > 0) return res.status(409).json({ error: "Setup has already been completed." });
-  const body = z.object({
-    email: z.string().email(),
-    password: z.string().min(12, "Password must be at least 12 characters long."),
-    organizationName: z.string().trim().min(2).max(120).optional().or(z.literal(""))
-  }).safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: body.error.issues[0]?.message ?? "Invalid setup payload." });
+  if (!setupRequired()) return res.status(404).json({ error: setupClosed });
+  const body = setupSchema().safeParse(req.body);
+  if (!body.success) return res.status(400).json({ error: body.error.issues[0]?.message ?? "Enter an email address, a password and the setup code." });
+  if (!setupCodeMatches(body.data.setupCode)) return res.status(403).json({ error: wrongSetupCode });
   const passwordHash = await bcrypt.hash(body.data.password, 12);
+  // Checked again after the await, so two requests with the right code cannot both create an administrator.
+  if (!setupRequired()) return res.status(404).json({ error: setupClosed });
+  if (!setupCodeMatches(body.data.setupCode)) return res.status(403).json({ error: wrongSetupCode });
+  if (users.findByEmail(body.data.email)) return res.status(409).json({ error: "An account with this email address already exists. Use a different address for the administrator." });
   const user = users.create(body.data.email, passwordHash, "super_admin");
-  tenants.create(body.data.organizationName || "Default organization", user.id);
+  const tenant = tenants.create(body.data.organizationName || "Default organization", user.id);
+  clearSetupCode();
+  auditLogs.record({ tenantId: tenant.id, actorUserId: user.id, targetUserId: user.id, action: "setup.completed", metadata: { email: user.email, role: user.role } });
+  console.log("First-run setup completed: the first administrator account exists, and the setup is closed.");
   const session = createUserSession(user.id);
   setSessionCookie(res, session.token);
   res.status(201).json(withMemberships(publicUser(user), session.csrfToken, user.id));
 });
 
 authRoutes.post("/register", authLimiter, async (req, res) => {
-  const parsed = registerSchema.safeParse(req.body);
+  if (setupRequired()) return res.status(409).json({ error: "This crt.watch instance is not set up yet. Registration opens once the operator has created the first administrator account." });
+  const parsed = registerSchema().safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid registration payload." });
 
-  const firstUser = users.count() === 0;
   const invite = parsed.data.inviteToken ? tenantInvites.findByToken(parsed.data.inviteToken) : null;
   if (parsed.data.inviteToken && !invite) return res.status(404).json({ error: "Invitation is invalid or expired." });
-  if (!firstUser && !invite && !publicRegistrationEnabled()) return res.status(403).json({ error: "Public registration is disabled." });
+  if (!invite && !publicRegistrationEnabled()) return res.status(403).json({ error: "Public registration is disabled." });
   if (invite && invite.email !== parsed.data.email) return res.status(409).json({ error: "This invitation was issued for a different email address." });
   if (!invite && !parsed.data.organizationName) return res.status(400).json({ error: "Organization name is required." });
   if (users.findByEmail(parsed.data.email)) return res.status(409).json({ error: "A user with this email already exists. Sign in instead." });
   if (invite && !organizationHasRoom(invite.tenantId)) return res.status(402).json({ error: "Organization user limit reached." });
 
-  const role = firstUser ? "super_admin" : "viewer";
-  const user = users.create(parsed.data.email, await bcrypt.hash(parsed.data.password, 12), role);
+  // A registered account never gets a platform role; the first administrator comes from the setup.
+  const user = users.create(parsed.data.email, await bcrypt.hash(parsed.data.password, 12), "viewer");
   if (invite) tenantInvites.accept(invite, user.id);
   else tenants.create(parsed.data.organizationName!, user.id);
 
@@ -131,8 +146,8 @@ authRoutes.post("/logout", requireAuth, (req, res) => {
 
 authRoutes.post("/change-password", requireAuth, authLimiter, async (req, res) => {
   const parsed = z.object({
-    currentPassword: z.string().min(1),
-    newPassword: z.string().min(12, "Password must be at least 12 characters long.")
+    currentPassword: z.string().min(1, "Enter your current password."),
+    newPassword: passwordRule()
   }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid password payload." });
   const user = users.findById(req.user!.id);
@@ -173,9 +188,9 @@ const teamsForUser = (userId: string) =>
     teams.listForUser(membership.tenantId, userId, membership.role)
   ]));
 
-const registerSchema = z.object({
+const registerSchema = () => z.object({
   email: z.string().trim().email().transform((email) => email.toLowerCase()),
-  password: z.string().min(12, "Password must be at least 12 characters long."),
+  password: passwordRule(),
   organizationName: z.string().trim().min(2).max(120).optional().or(z.literal("")),
   inviteToken: z.string().trim().min(8).optional().or(z.literal(""))
 }).transform((value) => ({
@@ -183,6 +198,13 @@ const registerSchema = z.object({
   organizationName: value.organizationName || undefined,
   inviteToken: value.inviteToken || undefined
 }));
+
+const setupSchema = () => z.object({
+  email: z.string().trim().email("Enter a valid email address for the administrator.").transform((email) => email.toLowerCase()),
+  password: passwordRule(),
+  organizationName: z.string().trim().min(2, "An organization name needs at least 2 characters.").max(120, "An organization name can have at most 120 characters.").optional().or(z.literal("")),
+  setupCode: z.string({ required_error: `Enter the setup code. It is in the server log, or print it on the server with: ${setupCodeCommand}` }).trim().min(1, `Enter the setup code. It is in the server log, or print it on the server with: ${setupCodeCommand}`)
+});
 
 const organizationHasRoom = (tenantId: string) => {
   const tenant = tenants.get(tenantId);

@@ -14,7 +14,10 @@ import { env } from "../config/env.js";
      while a person who types correctly never notices it.
 
    The two-factor step is also counted per account, because the code belongs
-   to the account and changing addresses must not buy more guesses. */
+   to the account and changing addresses must not buy more guesses.
+
+   The library's own warning about X-Forwarded-For without trust proxy is off;
+   security/proxy.ts reports that case in the log with the setting to change. */
 
 export type RequestLimitSettings = { windowSeconds: number; maxRequests: number };
 export type AuthLimitSettings = { windowMinutes: number; maxAttempts: number };
@@ -38,7 +41,7 @@ export const createRequestLimiter = (settings: RequestLimitSettings = { windowSe
     limit: settings.maxRequests,
     // 0 switches the limit off here; the library's warning about limit 0 would only confuse.
     skip: () => settings.maxRequests === 0,
-    validate: { limit: false },
+    validate: { limit: false, xForwardedForHeader: false },
     standardHeaders: "draft-7",
     legacyHeaders: false,
     handler: (req, res, _next, options) => {
@@ -63,6 +66,7 @@ export const createAuthLimiter = (settings: AuthLimitSettings = authDefaults()) 
     skipSuccessfulRequests: true,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
     handler: authHandler(settings, "from your address")
   });
 
@@ -74,6 +78,7 @@ export const createMfaAccountLimiter = (settings: AuthLimitSettings = authDefaul
     skipSuccessfulRequests: true,
     standardHeaders: "draft-7",
     legacyHeaders: false,
+    validate: { xForwardedForHeader: false },
     keyGenerator: (req) => {
       const userId = verifyMfaChallenge(String(req.body?.mfaToken ?? ""));
       return userId ? `mfa-account:${userId}` : ipKeyGenerator(req.ip ?? "");

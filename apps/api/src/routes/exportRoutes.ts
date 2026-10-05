@@ -1,7 +1,9 @@
 import { Router } from "express";
+import { requireTenantRole } from "../auth/auth.js";
 import { appSettings, channels, monitors, results } from "../storage/repositories.js";
+import { statusPageConflict, statusPagesSchema } from "../status/publication.js";
 import { defaultsFor, monitorInputSchema } from "./monitorSchemas.js";
-import type { ChannelType, Monitor, NotificationChannel } from "../types.js";
+import type { ChannelType, Monitor, NotificationChannel, StatusPageSettings } from "../types.js";
 import { id } from "../utils/id.js";
 import { nowIso } from "../utils/time.js";
 import { redactConfigSecrets } from "../utils/secrets.js";
@@ -12,7 +14,8 @@ exportRoutes.get("/monitors.json", (req, res) => {
   res.attachment("crtwatch-monitors.json").json({ monitors: monitors.list(req.currentTenant!.id).map(publicMonitor) });
 });
 
-exportRoutes.post("/monitors.json", (req, res) => {
+// Importing creates monitors, so it needs the role that creates them one by one.
+exportRoutes.post("/monitors.json", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const input = Array.isArray(req.body?.monitors) ? req.body.monitors : [];
   const created = [];
   for (const item of input) {
@@ -44,36 +47,70 @@ exportRoutes.get("/backup.json", (_req, res) => {
   });
 });
 
-exportRoutes.post("/restore", (req, res) => {
+// A restore writes settings, channels and status pages, so it needs the role that manages them.
+exportRoutes.post("/restore", requireTenantRole("owner", "admin"), (req, res) => {
+  const tenantId = req.currentTenant!.id;
   const input = req.body ?? {};
-  const created = [];
-  let restoredChannels = 0;
-  for (const item of Array.isArray(input.monitors) ? input.monitors : []) {
-    const parsed = monitorInputSchema.safeParse(defaultsFor(item));
-    if (parsed.success) created.push(publicMonitor(monitors.create({ ...parsed.data, tenantId: req.currentTenant!.id })));
+
+  // Status pages publish monitors under public addresses, so they are checked before anything is written.
+  let statusPages: StatusPageSettings | undefined;
+  if (input.settings?.statusPages) {
+    const parsed = statusPagesSchema.safeParse(input.settings.statusPages);
+    if (!parsed.success) return res.status(400).json({ error: `The status pages in this backup cannot be restored: ${parsed.error.issues[0]?.message ?? "a page is incomplete"}. Correct them in the file or remove settings.statusPages, then restore again.` });
+    const conflict = statusPageConflict(tenantId, parsed.data.pages);
+    if (conflict) return res.status(409).json({ error: `The status pages in this backup cannot be restored. ${conflict} Change it in the file or remove settings.statusPages, then restore again.` });
+    statusPages = parsed.data;
   }
+
+  // Channels keep their ids, so restored monitors and routes still point at them.
+  // An id that belongs to a channel of another organization gets a new one, and
+  // the references in this backup follow it; the other channel stays untouched.
+  const renamed = new Map<string, string>();
+  let restoredChannels = 0;
   for (const item of Array.isArray(input.notificationChannels) ? input.notificationChannels : []) {
     const channel = restoreChannel(item);
-    if (channel) {
-      channels.upsert({ ...channel, tenantId: req.currentTenant!.id });
-      restoredChannels += 1;
+    if (!channel) continue;
+    if (channels.get(channel.id) && !channels.get(channel.id, tenantId)) {
+      renamed.set(channel.id, id());
+      channel.id = renamed.get(channel.id)!;
     }
+    if (channels.upsert({ ...channel, tenantId })) restoredChannels += 1;
   }
-  if (input.settings?.alerting) appSettings.set("alerting", input.settings.alerting, req.currentTenant!.id);
-  if (input.settings?.retention) appSettings.set("retention", input.settings.retention, req.currentTenant!.id);
-  if (input.settings?.ctWatch) appSettings.set("ctWatch", input.settings.ctWatch, req.currentTenant!.id);
-  if (input.settings?.maintenance) appSettings.set("maintenance", input.settings.maintenance, req.currentTenant!.id);
-  if (input.settings?.tlsPolicy) appSettings.set("tlsPolicy", input.settings.tlsPolicy, req.currentTenant!.id);
-  if (input.settings?.sslLabs) appSettings.set("sslLabs", input.settings.sslLabs, req.currentTenant!.id);
-  if (input.settings?.statusPages) appSettings.set("statusPages", input.settings.statusPages, req.currentTenant!.id);
-  if (input.settings?.discovery) appSettings.set("discovery", input.settings.discovery, req.currentTenant!.id);
-  if (input.settings?.backups) appSettings.set("backups", input.settings.backups, req.currentTenant!.id);
-  if (Array.isArray(input.notificationRoutes)) appSettings.set("notificationRoutes", input.notificationRoutes, req.currentTenant!.id);
+
+  const created = [];
+  for (const item of Array.isArray(input.monitors) ? input.monitors : []) {
+    const parsed = monitorInputSchema.safeParse(defaultsFor(item));
+    if (!parsed.success) continue;
+    const monitor = { ...parsed.data, notificationChannelIds: renameIds(parsed.data.notificationChannelIds, renamed), notificationRecipients: renameKeys(parsed.data.notificationRecipients, renamed) };
+    created.push(publicMonitor(monitors.create({ ...monitor, tenantId })));
+  }
+  if (input.settings?.alerting) appSettings.set("alerting", input.settings.alerting, tenantId);
+  if (input.settings?.retention) appSettings.set("retention", input.settings.retention, tenantId);
+  if (input.settings?.ctWatch) appSettings.set("ctWatch", input.settings.ctWatch, tenantId);
+  if (input.settings?.maintenance) appSettings.set("maintenance", input.settings.maintenance, tenantId);
+  if (input.settings?.tlsPolicy) appSettings.set("tlsPolicy", input.settings.tlsPolicy, tenantId);
+  if (input.settings?.sslLabs) appSettings.set("sslLabs", input.settings.sslLabs, tenantId);
+  if (statusPages) appSettings.set("statusPages", statusPages, tenantId);
+  if (input.settings?.discovery) appSettings.set("discovery", input.settings.discovery, tenantId);
+  if (input.settings?.backups) appSettings.set("backups", input.settings.backups, tenantId);
+  if (Array.isArray(input.notificationRoutes)) {
+    appSettings.set("notificationRoutes", input.notificationRoutes.map((route: any) => route && typeof route === "object"
+      ? { ...route, channelIds: renameIds(route.channelIds, renamed), recipients: renameKeys(route.recipients, renamed) }
+      : route), tenantId);
+  }
   res.status(201).json({ imported: created.length, restoredChannels, monitors: created });
 });
 
+const renameIds = <T>(ids: T, renamed: Map<string, string>): T =>
+  (Array.isArray(ids) ? ids.map((value) => (typeof value === "string" ? renamed.get(value) ?? value : value)) : ids) as T;
+
+const renameKeys = <T>(record: T, renamed: Map<string, string>): T =>
+  (record && typeof record === "object" && !Array.isArray(record)
+    ? Object.fromEntries(Object.entries(record).map(([key, value]) => [renamed.get(key) ?? key, value]))
+    : record) as T;
+
 exportRoutes.get("/certificates.csv", (_req, res) => {
-  const latest = results.latestByMonitor();
+  const latest = results.latestByMonitor(_req.currentTenant!.id);
   const rows = [["name", "host", "port", "status", "days_remaining", "valid_until", "issuer", "fingerprint_sha256", "tls_grade", "ssl_labs_grade", "resolved_addresses"]];
   for (const monitor of monitors.list(_req.currentTenant!.id)) {
     const result = latest[monitor.id];

@@ -61,6 +61,7 @@ describe("service checks", () => {
 
   it("renders Prometheus metrics text", () => {
     migrate();
+    // The access check in front of the handler decided on the operator's view of every organization.
     const response = fakeResponse();
     metricsHandler({} as any, response as any);
 
@@ -116,6 +117,7 @@ const monitor = (partial: Partial<Monitor>): Monitor => ({
 });
 
 const fakeResponse = () => ({
+  locals: { metricsScope: { kind: "platform" } },
   typeValue: "",
   body: "",
   type(value: string) {

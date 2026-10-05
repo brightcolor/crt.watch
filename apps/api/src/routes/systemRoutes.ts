@@ -8,13 +8,15 @@ import { alerts, appSettings, auditLogs, channels, incidents, monitors, results,
 import { testChannel } from "../notifications/service.js";
 import { NotificationTargetError } from "../notifications/delivery.js";
 import { createImpersonationSession, requireSuperAdmin, requireTenantRole, setSessionCookie } from "../auth/auth.js";
+import { passwordRule } from "../auth/passwords.js";
 import { discoverMonitors } from "../checks/discovery.js";
 import rootPackage from "../../../../package.json" with { type: "json" };
 
 export const systemRoutes = Router();
 
-systemRoutes.get("/status", (_req, res) => {
-  const all = monitors.list(_req.currentTenant!.id);
+// Every list and change below stays inside the organization selected for the request.
+systemRoutes.get("/status", (req, res) => {
+  const all = monitors.list(req.currentTenant!.id);
   const counts = all.reduce<Record<string, number>>((acc, monitor) => {
     acc[monitor.lastStatus] = (acc[monitor.lastStatus] ?? 0) + 1;
     return acc;
@@ -27,15 +29,15 @@ systemRoutes.get("/status", (_req, res) => {
     down: counts.DOWN ?? 0,
     paused: counts.PAUSED ?? 0,
     unknown: counts.UNKNOWN ?? 0,
-    latestResults: Object.values(results.latestByMonitor()).slice(0, 10)
+    latestResults: Object.values(results.latestByMonitor(req.currentTenant!.id)).slice(0, 10)
   });
 });
 
-systemRoutes.get("/alerts", (_req, res) => res.json(alerts.list()));
-systemRoutes.get("/incidents", (_req, res) => res.json(incidents.list()));
-systemRoutes.get("/subscriptions", (_req, res) => res.json(subscriptions.list()));
-systemRoutes.delete("/subscriptions/:id", (req, res) => {
-  subscriptions.delete(req.params.id);
+systemRoutes.get("/alerts", (req, res) => res.json(alerts.list(req.currentTenant!.id)));
+systemRoutes.get("/incidents", (req, res) => res.json(incidents.list(req.currentTenant!.id)));
+systemRoutes.get("/subscriptions", (req, res) => res.json(subscriptions.list(req.currentTenant!.id)));
+systemRoutes.delete("/subscriptions/:id", requireTenantRole("owner", "admin"), (req, res) => {
+  if (!subscriptions.delete(req.params.id, req.currentTenant!.id)) return res.status(404).json({ error: "Subscription not found in this organization. Reload the list; it may have been removed already." });
   res.status(204).end();
 });
 systemRoutes.get("/health", (_req, res) => res.json({ ok: true }));
@@ -259,7 +261,8 @@ systemRoutes.post("/notification-channels", requireTenantRole("owner", "admin"),
     createdAt: existing?.createdAt ?? now,
     updatedAt: now
   };
-  channels.upsert(channel);
+  // An id of another organization's channel writes nothing.
+  if (!channels.upsert(channel)) return res.status(404).json({ error: "Notification channel not found in this organization. Reload the page and save the channel again." });
   res.status(201).json(redactChannel(channel));
 });
 
@@ -268,9 +271,10 @@ systemRoutes.delete("/notification-channels/:id", requireTenantRole("owner", "ad
   res.status(204).end();
 });
 
-systemRoutes.post("/notification-channels/test", async (req, res) => {
+// Testing sends a message with the stored or the submitted settings, so it needs the same role as saving them.
+systemRoutes.post("/notification-channels/test", requireTenantRole("owner", "admin"), async (req, res) => {
   const channel = req.body.id ? channels.get(String(req.body.id), req.currentTenant!.id) : { ...req.body, tenantId: req.currentTenant!.id };
-  if (!channel) return res.status(404).json({ error: "Notification channel not found." });
+  if (!channel) return res.status(404).json({ error: "Notification channel not found in this organization. Reload the page and test the channel again." });
   // Express 4 does not catch a rejected handler, so a failed test must be answered here.
   try {
     await testChannel(channel);
@@ -416,13 +420,13 @@ const discoverSchema = z.object({
 
 const userSchema = z.object({
   email: z.string().trim().email().transform((email) => email.toLowerCase()),
-  password: z.string().min(12, "Password must be at least 12 characters long."),
+  password: passwordRule(),
   role: z.enum(["super_admin", "admin", "viewer"]).default("viewer"),
   tenantRole: z.enum(["owner", "admin", "member", "viewer"]).default("viewer")
 });
 
 const updateUserSchema = z.object({
-  password: z.string().min(12).optional().or(z.literal("")),
+  password: passwordRule().optional().or(z.literal("")),
   role: z.enum(["super_admin", "admin", "viewer"])
 }).transform((value) => ({ ...value, password: value.password || undefined }));
 

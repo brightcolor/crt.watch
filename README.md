@@ -62,7 +62,7 @@ This stack keeps the application easy to self-host while still supporting real T
 - Per-monitor alert grace period before failed checks create notifications
 - Label-based application rollups where one service can contain multiple checks
 - Label inputs support chip mode, paste-friendly text mode, Enter/comma commits, and reliable blur commits before moving to another field
-- Prometheus-compatible metrics at `/metrics`
+- Prometheus-compatible metrics at `/metrics`, for the operator's bearer token or a signed-in member of an organization
 - SSL Labs-style TLS security grading with a compact A-F score per TLS result, including secure service checks on the dashboard overview
 - Optional intensive TLS assessment that probes supported TLS versions and flags deprecated protocol support, weak cipher patterns, missing forward secrecy, small certificate keys, and incomplete chains
 - TLS grading explains persisted score deductions and deterioration alerts include the concrete reason for a grade drop
@@ -90,13 +90,14 @@ This stack keeps the application easy to self-host while still supporting real T
 - Enforced monitor and label-based maintenance windows that keep checks running while suppressing notifications
 - Incident acknowledgement, assignment, notes, and delivery visibility for alert troubleshooting
 - API tokens with read-only or read/write scopes for automation
-- Custom public status pages with slugs, titles, descriptions, logos, hostname hiding, subscriptions, and incident timelines
+- Custom public status pages with slugs, titles, descriptions, logos, hostname hiding, subscriptions, and incident timelines; a monitor is public only while a published status page of its organization shows it
 - Public status page subscriptions require double opt-in before email or webhook incident updates are enabled
 - Scheduled auto-discovery jobs for common web and mail endpoints
 - Availability reports with check counts, incident counts, availability percentage, and MTTR
 - Scheduled SQLite database backups with UI download and retention controls
-- Passport-based local user login with bcrypt password hashes, secure sessions, CSRF token header, first-run admin setup, organization self-registration, and optional GitHub OAuth strategy configuration
-- Hardened defaults: a Content Security Policy on every page, rate limits for requests and for failed sign-in and two-factor attempts, webhook notifications restricted to public addresses, and a container that runs as an unprivileged user
+- Passport-based local user login with bcrypt password hashes, secure sessions, CSRF token header, first-run admin setup protected by a setup code from the server log, organization self-registration, and optional GitHub OAuth strategy configuration
+- Hardened defaults: a Content Security Policy on every page, rate limits for requests and for failed sign-in and two-factor attempts, webhook, chat and email notifications restricted to public addresses, `/metrics` behind a token, client addresses from `X-Forwarded-For` only for named proxies, and a container that runs as an unprivileged user
+- Organizations are kept apart throughout: lists, incidents, deliveries, subscriptions, channels, restores and metrics stay inside the organization of the signed-in member
 - Optional TOTP-based two-factor authentication per user, set up from the Profile page with one-time backup codes and enforced as a second login step
 - Audit log for organization and team management actions, viewable by owners and admins on the Operations page
 - Admin-only user management with visible validation for password length and duplicate email addresses
@@ -186,7 +187,23 @@ docker compose up -d
 http://localhost:8080
 ```
 
-On first launch, crt.watch shows a setup screen where the first user creates the administrator account.
+### First-run setup
+
+As long as no administrator account exists, every page of crt.watch leads to the setup screen at `/setup`, where you create the first administrator. The setup asks for a setup code that only the operator sees. The code is in the server log of the current start:
+
+```bash
+docker compose logs crt-watch | grep -A1 "not set up yet"
+```
+
+or print it inside the container:
+
+```bash
+docker compose exec crt-watch node apps/api/dist/cli.js setup-code
+```
+
+Enter the code together with the administrator's email address, an organization name and a password (at least `PASSWORD_MIN_LENGTH` characters, 12 by default). The account is signed in right away, becomes platform administrator and owner of the new organization, and the setup is recorded in that organization's audit log. A new code replaces the old one at every start. During the setup the API, `/api/health`, `/metrics`, the public status pages and the static files stay reachable, and public registration waits until the setup is done.
+
+Once an administrator exists, the setup is closed: `/setup` answers 404, the command reports that there is nothing to print, and registration never makes anybody an administrator. Further administrators are created by an administrator on the Users page.
 
 The public marketing frontpage is enabled by default. Disable it with `FRONT_PAGE_ENABLED=false` when crt.watch should open directly on the sign-in screen. Public organization signup is controlled separately with `PUBLIC_REGISTRATION_ENABLED`; invitation links keep working even when public signup is disabled.
 
@@ -242,7 +259,9 @@ Users can configure personal alert preferences for non-critical events in Settin
 
 Webhook payloads include monitor ID, monitor name, host, port, status, severity, message, days remaining, validity dates, issuer, SHA256 fingerprint, local TLS grade, optional SSL Labs grade, resolved addresses, DNS resolver mismatches, check time, and the monitor URL.
 
-Webhook and chat notifications, including the opt-in for status page webhook subscriptions, go to public addresses only. crt.watch checks the address each connection actually uses, after DNS resolution and again for every redirect, and refuses loopback, private, link-local (including the cloud metadata endpoint `169.254.169.254`), carrier-grade NAT, multicast and reserved ranges. To deliver to a service in your own network, such as Gotify, ntfy, Mattermost or Matrix on a LAN address, list its address or network in `NOTIFICATION_ALLOWED_NETWORKS`, or allow all internal targets with `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` on an instance where every user is trusted. See [Security Settings](#security-settings).
+Webhook and chat notifications, including the opt-in for status page webhook subscriptions, go to public addresses only, and so does email: the SMTP host of the organization's SMTP settings or of an email channel passes the same check. crt.watch checks the address each connection actually uses, after DNS resolution and again for every redirect, and refuses loopback, private, link-local (including the cloud metadata endpoint `169.254.169.254`), carrier-grade NAT, multicast and reserved ranges. To deliver to a service in your own network, such as Gotify, ntfy, Mattermost or Matrix on a LAN address, or a mail relay on the Docker host or in your LAN, list its address or network in `NOTIFICATION_ALLOWED_NETWORKS`, or allow all internal targets with `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` on an instance where every user is trusted. See [Security Settings](#security-settings).
+
+The Test button of a channel sends a real message with the stored settings, so it is available to organization owners and admins, the same roles that save channels.
 
 ## REST API
 
@@ -286,16 +305,20 @@ All API routes require login session authentication except `/api/auth/login`.
 
 ## Public Status And Badges
 
-Public status pages are available by label/tag:
+An organization decides what the public sees by publishing status pages in Operations. An enabled status page shows the organization's monitors that carry all of its labels, or all of its monitors when it has no labels. Public status pages, badges and status page subscriptions show published monitors only; everything else stays inside the organization. A disabled page publishes nothing, and an organization that is suspended publishes nothing either.
+
+A published page answers under its slug, and under its labels joined with `+`:
 
 ```text
-/public/status/prod.html
-/public/status/prod
-/public/status/prod+mail.html
-/public/status/prod+mail
+/public/status/public-prod.html     the page with the slug public-prod
+/public/status/public-prod          the same page as JSON
+/public/status/prod.html            the published page whose labels are exactly prod
+/public/status/prod+mail            the published page whose labels are exactly prod and mail
 ```
 
-Monitor badges are SVG URLs:
+A slug is a public address, so it belongs to one organization only; saving a slug that another organization already uses is refused. Labels are not unique: when several organizations publish the same labels, the label address belongs to the default organization, then to the oldest one, so hand out the slug address. An address without a published page answers 404. When a page hides host names, the JSON leaves out host and port as well, and public incidents never carry acknowledgements, assignees or notes.
+
+Monitor badges are SVG URLs. A badge shows a monitor while a published page of its organization covers it; for any other monitor it reads `unknown`, the same as for a monitor that does not exist:
 
 ```text
 /public/badge/{monitorId}.svg
@@ -309,9 +332,9 @@ Badges size themselves from their content, keep long hostnames clipped inside th
 /public/badge/tags/prod+mail.svg?alias=Customer%20Mail
 ```
 
-Status pages include the latest incident timeline and expose a simple email/webhook subscription form. Subscriptions are notified when an incident opens or resolves for matching labels.
+Status pages include the latest incident timeline and expose a simple email/webhook subscription form. A subscription belongs to the organization of the page it was made on, and it is notified when an incident opens or resolves for a monitor of that organization that matches its labels and is published at that moment. Subscriptions from earlier versions belong to the default organization.
 
-Custom status pages can be configured in the Operations page. A custom page maps a public slug to one or more labels and can set a title, description, logo URL, and hostname-hiding behavior.
+Status pages are configured in the Operations page. A page maps a public slug to one or more labels and can set a title, description, logo URL, and hostname-hiding behavior.
 
 Public status page subscriptions are inactive until the recipient confirms the opt-in link. Email subscriptions receive a confirmation email through the global SMTP settings. Webhook subscriptions receive a JSON opt-in payload with `confirm_url`.
 
@@ -341,7 +364,8 @@ crt.watch now has a clean organization and team layer that prepares the app for 
 - Authentication uses Passport Local today and has an optional Passport GitHub strategy ready for future OAuth login.
 - Each authenticated request is scoped to the selected organization through the verified `X-Tenant-Id` header.
 - Team context is selected with `X-Team-Id` and verified server-side against the active organization membership.
-- Monitors, notification providers, alert policy, SMTP settings, TLS policy, discovery, status page settings, and backups are tenant-scoped.
+- Monitors, notification providers, alert policy, SMTP settings, TLS policy, discovery, status page settings, and backups are tenant-scoped, and so are alert history, incidents with their acknowledgements and notes, the notification delivery log and status page subscriptions. An id that belongs to another organization reads as not found.
+- The public sees only monitors an organization has published on its own status pages; see [Public Status And Badges](#public-status-and-badges).
 - Organization memberships support direct `owner`, `admin`, `member`, and `viewer` roles.
 - Organizations contain tenant-scoped teams with `team_owner`, `team_admin`, and `team_member` roles. Private teams are visible to members, while tenant-visible teams are readable by the whole organization.
 - Public registration creates an isolated organization for the new user when `PUBLIC_REGISTRATION_ENABLED=true`.
@@ -358,13 +382,38 @@ Billing, automated invite emails, team-scoped monitor ownership, and per-tenant 
 
 ## Prometheus
 
-Scrape:
+`/metrics` answers only to callers that identify themselves (`METRICS_ACCESS=authenticated`, the default):
 
-```text
-http://localhost:8080/metrics
+- the bearer token from `METRICS_TOKEN`, meant for the operator's Prometheus, sees the monitors of every organization;
+- a signed-in session or a crt.watch API token sees the monitors of that member's organization.
+
+Generate a token and set it in `.env`:
+
+```bash
+openssl rand -hex 32
 ```
 
-Exported metrics include `crtwatch_monitor_status`, `crtwatch_cert_days_remaining`, `crtwatch_last_check_timestamp`, and `crtwatch_check_duration_seconds`.
+```env
+METRICS_TOKEN=<the generated value>
+```
+
+Scrape configuration:
+
+```yaml
+scrape_configs:
+  - job_name: crtwatch
+    scheme: https
+    metrics_path: /metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/crtwatch-token
+    static_configs:
+      - targets: ["crt.watch.example.com"]
+```
+
+Without credentials `/metrics` answers 401 and says how to authenticate. `METRICS_ACCESS=public` opens it without a token, with every organization's monitors; use that only on an instance that nothing but a trusted network can reach.
+
+Exported metrics include `crtwatch_monitor_status`, `crtwatch_cert_days_remaining`, `crtwatch_last_check_timestamp`, and `crtwatch_check_duration_seconds`. Each series carries the labels `organization` (the organization's slug), `monitor_id`, `monitor_name`, `host`, `type` and `tags`.
 
 ## Watchtower Updates
 
@@ -386,9 +435,11 @@ Set:
 
 ```env
 BASE_URL=https://crt.watch.example.com
-TRUST_PROXY=true
+TRUST_PROXY=loopback,uniquelocal
 COOKIE_SECURE=true
 ```
+
+`TRUST_PROXY` names the proxies whose `X-Forwarded-For` header gives the client address, and it is off by default. List the addresses or networks the proxy connects from; `loopback`, `linklocal` and `uniquelocal` stand for their ranges (`uniquelocal` covers 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16 and fc00::/7, which includes Docker networks). For a proxy on the Docker host that reaches a published port, or a proxy container in the same Docker network, `TRUST_PROXY=loopback,uniquelocal` fits. A single network such as `TRUST_PROXY=172.18.0.0/16` is narrower. `TRUST_PROXY=true` trusts one hop from any address; use it only when nothing but the proxy can reach the container.
 
 Example nginx config:
 
@@ -407,7 +458,7 @@ server {
 }
 ```
 
-The rate limits count requests per client address. With `TRUST_PROXY=true`, crt.watch takes that address from the `X-Forwarded-For` header the proxy sets. When the container is reachable directly, without a proxy in front, set `TRUST_PROXY=false`, so clients cannot pick their own address through that header.
+The rate limits count requests per client address. With `TRUST_PROXY` set, crt.watch takes that address from the `X-Forwarded-For` header of a trusted proxy. Without it, every visitor behind the proxy counts as the proxy's address, and crt.watch writes a hint to its log the first time such a header arrives. On a container that clients reach directly, leave `TRUST_PROXY` unset or `false`; the client address then comes from the connection. The log line at start says which source is in effect.
 
 ## Security Settings
 
@@ -415,10 +466,14 @@ These environment variables control the protections added in the security harden
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `ALLOW_PRIVATE_NOTIFICATION_TARGETS` | `false` | `true` lets webhook and chat notifications reach loopback, private and link-local addresses. Use it only where every user who can configure channels is trusted. |
-| `NOTIFICATION_ALLOWED_NETWORKS` | empty | Internal addresses or networks that notifications may reach even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
+| `TRUST_PROXY` | `false` | Proxies whose `X-Forwarded-For` header gives the client address: a list of addresses and networks such as `loopback,uniquelocal` or `172.18.0.0/16`, or `true` / a number of hops (1 to 10) to trust that many hops from any address. Off, the address comes from the connection. See [Reverse Proxy](#reverse-proxy). |
+| `METRICS_ACCESS` | `authenticated` | `authenticated` lets `/metrics` answer `METRICS_TOKEN`, a signed-in session or a crt.watch API token. `public` answers everyone with every organization's monitors. |
+| `METRICS_TOKEN` | empty | Bearer token for the operator's Prometheus, at least 32 characters without spaces, for example from `openssl rand -hex 32`. It sees the monitors of every organization. Empty, only signed-in members and API tokens read `/metrics`. |
+| `PASSWORD_MIN_LENGTH` | `12` | Shortest password accepted for every account: setup, registration, user management and password changes (8 to 128). |
+| `ALLOW_PRIVATE_NOTIFICATION_TARGETS` | `false` | `true` lets webhook, chat and email notifications reach loopback, private and link-local addresses, including SMTP servers. Use it only where every user who can configure channels and SMTP settings is trusted. |
+| `NOTIFICATION_ALLOWED_NETWORKS` | empty | Internal addresses or networks that notifications, including SMTP servers, may reach even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
 | `NOTIFICATION_MAX_REDIRECTS` | `3` | Redirects a notification request follows (0 to 10). Every redirect target is checked like the original URL. |
-| `NOTIFICATION_TIMEOUT_SECONDS` | `10` | Time a notification request may take including redirects (1 to 120). |
+| `NOTIFICATION_TIMEOUT_SECONDS` | `10` | Time a notification request may take including redirects, and time an SMTP server has to accept the connection (1 to 120). |
 | `RATE_LIMIT_WINDOW_SECONDS` | `60` | Window of the general request limit (1 to 3600). |
 | `RATE_LIMIT_MAX_REQUESTS` | `1200` | Requests per client address and window (0 to 100000). `0` switches the general limit off, for example when the reverse proxy already limits. |
 | `AUTH_RATE_LIMIT_WINDOW_MINUTES` | `15` | Window for failed sign-in, registration, setup and two-factor attempts (1 to 1440). |
@@ -458,14 +513,27 @@ docker compose up -d
 
 Use the directory configured as `DATA_DIR` if it differs from `./data`. Running the quickstart script again does the same: it changes the owner of `data` and pulls the new image. If the directory is not writable, crt.watch stops at start with a message that names the directory and the command.
 
+### Upgrading to organization-scoped public pages, protected metrics and named proxies
+
+Existing installations keep their administrator, so no setup screen appears. Check these points before or right after the update, also on installations that Watchtower updates:
+
+1. Reverse proxy: `TRUST_PROXY` is off by default. Behind a proxy, set it in `.env` to the proxy's addresses, for example `TRUST_PROXY=loopback,uniquelocal`. An existing `TRUST_PROXY=true` keeps its meaning; replace it with the proxy's network when the container port is reachable without the proxy.
+2. Prometheus: `/metrics` needs a token. Set `METRICS_TOKEN` and add it to the scrape configuration, see [Prometheus](#prometheus), or set `METRICS_ACCESS=public` on an instance that only a trusted network reaches.
+3. Public status pages and badges: label addresses and badges answer only for monitors on a published status page. Publish a status page in Operations for every label address or badge that is linked somewhere.
+4. Email: an SMTP host on an internal address (Docker host, mail container, LAN relay) is refused like an internal webhook. Add its address or network to `NOTIFICATION_ALLOWED_NETWORKS`, then use the Test button of an email channel.
+5. Default organization: an account joins it once, at the first start of this version, and only when it belongs to no organization at all. Open Organizations, select the default organization and remove members that do not belong there.
+
 ## Troubleshooting
 
-- Login fails on a fresh install: open the setup screen and create the first admin user. For an existing install, reset the password in the SQLite database or recreate the bind-mounted data directory if no data must be kept.
-- Creating a user fails: make sure the current account has the Admin role, the email address is not already used, and the password has at least 12 characters.
+- Login fails on a fresh install: every page leads to the setup screen; create the first admin user there with the setup code from `docker compose exec crt-watch node apps/api/dist/cli.js setup-code`. For an existing install, reset the password in the SQLite database or recreate the bind-mounted data directory if no data must be kept.
+- The setup answers "The setup code is not valid": the code changes at every start, so take it from the log of the current start or print it again with the command above.
+- Creating a user fails: make sure the current account has the Admin role, the email address is not already used, and the password has at least `PASSWORD_MIN_LENGTH` characters (12 by default).
 - Checks fail for private hosts: set `ALLOW_PRIVATE_TARGETS=true` if the instance is intentionally allowed to monitor internal networks.
-- Notifications to a service on the local network fail with "is a private, loopback or link-local address": add the service's address to `NOTIFICATION_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` if every user who can configure channels is trusted.
+- Notifications to a service on the local network fail with "is a private, loopback or link-local address", or email fails with "SMTP server … is a private, loopback or link-local address": add the address of the service or mail relay to `NOTIFICATION_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` if every user who can configure channels and SMTP settings is trusted.
+- Prometheus gets 401 from `/metrics`: set `METRICS_TOKEN` and send it as bearer token, as described in [Prometheus](#prometheus).
+- A public status page or badge answers 404 or `unknown`: publish a status page with those labels in Operations; only published monitors are public.
 - The container stops with "cannot write to its data directory": hand the data directory to uid 1000 as described in [Upgrading to the unprivileged container](#upgrading-to-the-unprivileged-container).
-- Sign-in answers "Too many failed attempts": wait for the time the message names, or adjust `AUTH_RATE_LIMIT_MAX_ATTEMPTS` and `AUTH_RATE_LIMIT_WINDOW_MINUTES`. Behind a reverse proxy, check that `TRUST_PROXY=true` is set, so each visitor is counted by their own address.
+- Sign-in answers "Too many failed attempts": wait for the time the message names, or adjust `AUTH_RATE_LIMIT_MAX_ATTEMPTS` and `AUTH_RATE_LIMIT_WINDOW_MINUTES`. Behind a reverse proxy, check that `TRUST_PROXY` names the proxy, for example `TRUST_PROXY=loopback,uniquelocal`, so each visitor is counted by their own address.
 - Cookies fail behind HTTPS: set `COOKIE_SECURE=true` and ensure `X-Forwarded-Proto` is passed by the proxy.
 - STARTTLS fails: verify the service advertises STARTTLS and that firewalls allow the configured port.
 - Stored secrets cannot be read after changing `SESSION_SECRET`: restore the previous secret or re-enter affected monitor, SMTP, and notification provider passwords.

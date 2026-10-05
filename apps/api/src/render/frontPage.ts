@@ -1,8 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { env } from "../config/env.js";
+import { setupRequired } from "../auth/setup.js";
 import { publicRegistrationEnabled } from "../routes/authRoutes.js";
-import { users } from "../storage/repositories.js";
 
 type BootConfig = {
   setupRequired: boolean;
@@ -60,12 +60,12 @@ export const renderFrontPageDocument = (hasSession: boolean): string | null => {
   if (hasSession || !env.frontPageEnabled) return null;
 
   const config: BootConfig = {
-    setupRequired: users.count() === 0,
+    setupRequired: setupRequired(),
     frontPageEnabled: env.frontPageEnabled,
     publicRegistrationEnabled: publicRegistrationEnabled()
   };
 
-  // A fresh instance goes straight to creating the first admin.
+  // An instance without an administrator sends every page to the setup instead.
   if (config.setupRequired) return null;
 
   try {
