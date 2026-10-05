@@ -59,7 +59,7 @@ app.use(configurePassport());
 app.use((req, _res, next) => {
   if (session) {
     req.user = session.user as Express.User;
-    req.csrfToken = "csrf-token";
+    req.session = { csrfToken: "csrf-token" };
     req.currentTenant = { id: "tenant-1" } as Express.Request["currentTenant"];
     req.tenantRole = session.tenantRole as Express.Request["tenantRole"];
   }

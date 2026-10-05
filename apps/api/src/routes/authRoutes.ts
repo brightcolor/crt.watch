@@ -157,7 +157,7 @@ authRoutes.post("/change-password", requireAuth, authLimiter, async (req, res) =
 });
 
 authRoutes.get("/me", requireAuth, (req, res) => {
-  res.json({ ...withMemberships(publicUser(req.user!), req.csrfToken, req.user!.id), impersonator: req.impersonator ? publicUser(req.impersonator) : null });
+  res.json({ ...withMemberships(publicUser(req.user!), req.session?.csrfToken, req.user!.id), impersonator: req.impersonator ? publicUser(req.impersonator) : null });
 });
 
 authRoutes.post("/stop-impersonation", requireAuth, async (req, res) => {
