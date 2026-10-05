@@ -58,6 +58,19 @@ describe("STARTTLS negotiation", () => {
     ready.socket.destroy();
   });
 
+  it("reads tagged IMAP completions in any case and only as whole words", async () => {
+    const port = await startServer((socket) => {
+      socket.write("* OK IMAP ready\r\n");
+      socket.on("data", (chunk) => {
+        const command = chunk.toString("utf8");
+        if (/cw001 CAPABILITY/i.test(command)) socket.write("* CAPABILITY IMAP4rev1 STARTTLS\r\ncw001 okay, more to come\r\nCW001 ok CAPABILITY completed\r\n");
+        if (/cw002 STARTTLS/i.test(command)) socket.write("cw002 NO STARTTLS is switched off\r\n");
+      });
+    });
+
+    await expect(prepareStartTls("127.0.0.1", port, "imap", 1000)).rejects.toThrow("IMAP STARTTLS rejected: cw002 NO STARTTLS is switched off");
+  });
+
   it("handles FTP AUTH TLS responses", async () => {
     const port = await startServer((socket) => {
       socket.write("220 FTP ready\r\n");

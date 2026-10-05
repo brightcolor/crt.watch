@@ -1,6 +1,7 @@
 import tls from "node:tls";
 import type { Monitor, TlsPolicySettings } from "../types.js";
 import { prepareStartTls } from "./starttls.js";
+import { monitorConnectOptions } from "./validation.js";
 
 type TlsVersion = "TLSv1" | "TLSv1.1" | "TLSv1.2" | "TLSv1.3";
 type FindingSeverity = "warning" | "critical";
@@ -95,7 +96,7 @@ const probeVersion = (monitor: Monitor, version: TlsVersion, timeoutMs: number) 
         timeout: timeoutMs,
         minVersion: version as tls.SecureVersion,
         maxVersion: version as tls.SecureVersion,
-        ...(rawSocket ? { socket: rawSocket } : {})
+        ...(rawSocket ? { socket: rawSocket } : monitorConnectOptions())
       });
       socket.once("secureConnect", () => done(true));
       socket.once("error", () => done(false));

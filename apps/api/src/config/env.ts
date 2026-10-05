@@ -122,7 +122,11 @@ export const env = {
   cookieSecure: boolFromEnv("COOKIE_SECURE", false),
   frontPageEnabled: boolFromEnv("FRONT_PAGE_ENABLED", true),
   publicRegistrationEnabled: boolFromEnv("PUBLIC_REGISTRATION_ENABLED", true),
-  allowPrivateTargets: boolFromEnv("ALLOW_PRIVATE_TARGETS", false),
+  // Monitor targets: which addresses checks may connect to, and the limits of HTTP checks.
+  allowPrivateTargets: booleanSetting(process.env, "ALLOW_PRIVATE_TARGETS", false),
+  monitorAllowedNetworks: networkListSetting(process.env, "MONITOR_ALLOWED_NETWORKS"),
+  monitorMaxRedirects: integerSetting(process.env, "MONITOR_MAX_REDIRECTS", 20, 0, 20),
+  monitorHttpBodyLimitKb: integerSetting(process.env, "MONITOR_HTTP_BODY_LIMIT_KB", 1024, 1, 65_536),
   checkConcurrency: numberFromEnv("CHECK_CONCURRENCY", 4),
   autoBackupIntervalHours: numberFromEnv("AUTO_BACKUP_INTERVAL_HOURS", 24),
   autoBackupKeep: numberFromEnv("AUTO_BACKUP_KEEP", 14),

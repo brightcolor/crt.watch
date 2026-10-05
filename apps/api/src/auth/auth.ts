@@ -11,7 +11,8 @@ declare global {
     interface User extends AppUser {}
     interface Request {
       apiToken?: ApiToken;
-      csrfToken?: string;
+      /** The crt.watch session behind the session cookie, when the request carries a valid one. */
+      session?: { csrfToken: string };
       currentTenant?: Tenant;
       currentTeam?: Team;
       tenantRole?: TenantRole;
@@ -52,19 +53,17 @@ export const attachSession = (req: Request, _res: Response, next: NextFunction) 
   const user = users.findById(session.user_id);
   if (user) {
     req.user = user;
-    req.csrfToken = session.csrf_token;
+    req.session = { csrfToken: session.csrf_token };
     if (session.impersonator_user_id) req.impersonator = users.findById(session.impersonator_user_id) ?? undefined;
   }
   next();
 };
 
+// The CSRF token of changing requests is checked by csrfProtection (security/csrf.ts), before every /api route.
 export const requireAuth = (req: Request, res: Response, next: NextFunction) => {
-  if (!req.user) return res.status(401).json({ error: "Authentication required." });
+  if (!req.user) return res.status(401).json({ error: "Sign in to continue. Scripts and integrations send an API token in the Authorization header." });
   if (req.apiToken && !["GET", "HEAD", "OPTIONS"].includes(req.method) && !req.apiToken.scopes.includes("write")) {
-    return res.status(403).json({ error: "API token does not allow write access." });
-  }
-  if (!req.apiToken && !["GET", "HEAD", "OPTIONS"].includes(req.method) && req.get("x-csrf-token") !== req.csrfToken) {
-    return res.status(403).json({ error: "Invalid CSRF token." });
+    return res.status(403).json({ error: "This API token can only read. Create a token with write access for changes." });
   }
   next();
 };

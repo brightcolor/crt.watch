@@ -1,11 +1,11 @@
-import dns, { type LookupAddress, type LookupOptions } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import net from "node:net";
 import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
+import { addressPolicy, guardedLookup, literalAddress } from "../security/targets.js";
 import type { SmtpSettings } from "../types.js";
-import { isPublicAddress, networkMatcher, type NetworkRule } from "../utils/networks.js";
+import type { NetworkRule } from "../utils/networks.js";
 
 /* Outbound connections for notifications: HTTP for webhook and chat channels,
    SMTP for email.
@@ -16,8 +16,9 @@ import { isPublicAddress, networkMatcher, type NetworkRule } from "../utils/netw
    https for webhooks, and no private, loopback or link-local address for
    either. The check runs on the address the connection actually uses, after
    DNS, so a name that resolves to an internal address is refused as well, and
-   so is every redirect target. The operator can open internal networks again
-   through ALLOW_PRIVATE_NOTIFICATION_TARGETS or NOTIFICATION_ALLOWED_NETWORKS. */
+   so is every redirect target (see security/targets.ts). The operator can open
+   internal networks again through ALLOW_PRIVATE_NOTIFICATION_TARGETS or
+   NOTIFICATION_ALLOWED_NETWORKS. */
 
 /** The target is not allowed by the operator's policy or is not a usable URL. */
 export class NotificationTargetError extends Error {}
@@ -55,114 +56,196 @@ const blockedTarget = (host: string) =>
 const blockedMailServer = (host: string) =>
   new NotificationTargetError(`SMTP server ${host} is a private, loopback or link-local address, and crt.watch does not send notifications into internal networks. Use a publicly reachable mail server, or ask the operator of this crt.watch instance to allow the network with NOTIFICATION_ALLOWED_NETWORKS or ALLOW_PRIVATE_NOTIFICATION_TARGETS.`);
 
-const addressPolicy = (settings: DeliverySettings) => {
-  const inAllowedNetwork = networkMatcher(settings.allowedNetworks);
-  return (address: string) => settings.allowPrivateTargets || isPublicAddress(address) || inAllowedNetwork(address);
+/** How the requests to one kind of target describe what went wrong, in the words of the people who configure it. */
+export type TargetWording = {
+  /** The configured address is not a URL, or a redirect points to something that is not one. */
+  invalidUrl: (redirectedFrom?: URL) => Error;
+  /** The address or a redirect uses a scheme other than http and https. */
+  unsupportedScheme: (scheme: string, redirectedFrom?: URL) => Error;
+  /** The address is outside the operator's policy. */
+  refused: (host: string) => Error;
+  timedOut: (host: string, seconds: number) => Error;
+  tooManyRedirects: (host: string, limit: number) => Error;
+  failed: (error: unknown, host: string) => Error;
 };
 
-const parseTarget = (value: string, base?: URL) => {
+const notificationWording: TargetWording = {
+  invalidUrl: (from) => new NotificationTargetError(from
+    ? `Notification endpoint ${from.hostname} redirected to an address that is not a valid URL. Use the final address of the endpoint.`
+    : "Notification URL is not a valid address. Enter the full URL, for example https://hooks.example.com/notify."),
+  unsupportedScheme: (scheme, from) => new NotificationTargetError(from
+    ? `Notification endpoint ${from.hostname} redirected to an address with the scheme "${scheme}", which crt.watch does not follow. Use the final https:// address of the endpoint.`
+    : "Notification URL must start with https:// or http://."),
+  refused: blockedTarget,
+  timedOut: (host, seconds) => new Error(`Notification endpoint ${host} did not answer within ${seconds} seconds. Check that it is reachable, or ask the operator to raise NOTIFICATION_TIMEOUT_SECONDS.`),
+  tooManyRedirects: (host, limit) => new Error(`Notification endpoint ${host} redirected more than ${limit} times. Use the final address of the endpoint, or ask the operator to raise NOTIFICATION_MAX_REDIRECTS.`),
+  failed: (error, host) => {
+    if (error instanceof NotificationTargetError) return error;
+    const code = (error as NodeJS.ErrnoException)?.code ?? "";
+    if (code === "ENOTFOUND" || code === "EAI_AGAIN") return new Error(`Notification target ${host} could not be resolved. Check the host name in the URL.`);
+    if (code === "ECONNREFUSED") return new Error(`Notification endpoint ${host} refused the connection. Check the URL and port, and whether the service is running.`);
+    if (code === "ECONNRESET" || code === "EPIPE") return new Error(`Notification endpoint ${host} closed the connection before answering. Try again later or check the endpoint.`);
+    if (/CERT|SELF_SIGNED|ALTNAME|UNABLE_TO_VERIFY/i.test(code)) return new Error(`The TLS certificate of notification endpoint ${host} is not valid (${code}). Fix the certificate or use a different endpoint.`);
+    return new Error(`Could not deliver the notification to ${host}: ${error instanceof Error ? error.message : String(error)}`);
+  }
+};
+
+const parseTarget = (value: string, wording: TargetWording, base?: URL) => {
   let target: URL;
   try {
     target = new URL(value, base);
   } catch {
-    throw new NotificationTargetError(base
-      ? `Notification endpoint ${base.hostname} redirected to an address that is not a valid URL. Use the final address of the endpoint.`
-      : "Notification URL is not a valid address. Enter the full URL, for example https://hooks.example.com/notify.");
+    throw wording.invalidUrl(base);
   }
-  if (target.protocol !== "http:" && target.protocol !== "https:") {
-    throw new NotificationTargetError(base
-      ? `Notification endpoint ${base.hostname} redirected to an address with the scheme "${target.protocol.replace(/:$/, "")}", which crt.watch does not follow. Use the final https:// address of the endpoint.`
-      : "Notification URL must start with https:// or http://.");
-  }
+  if (target.protocol !== "http:" && target.protocol !== "https:") throw wording.unsupportedScheme(target.protocol.replace(/:$/, ""), base);
   return target;
 };
 
-const literalAddress = (target: URL) => {
-  const host = target.hostname.replace(/^\[(.*)\]$/, "$1");
-  return net.isIP(host) ? host : null;
+type Hop = {
+  method: string;
+  headers: Record<string, string>;
+  body: string | undefined;
+  isAllowed: (address: string) => boolean;
+  deadline: number;
+  timeoutMs: number;
+  /** Bytes of the final answer's body to keep; 0 discards the body. */
+  bodyLimit: number;
+  followRedirects: boolean;
+  wording: TargetWording;
 };
 
-// Resolves like dns.lookup, but refuses the connection when any resolved
-// address is outside the policy. net.connect uses the address returned here,
-// so the checked address is the one that is connected to.
-const guardedLookup = (isAllowed: (address: string) => boolean, refuse: (host: string) => Error = blockedTarget) =>
-  ((hostname: string, options: LookupOptions, callback: (error: NodeJS.ErrnoException | null, address?: string | LookupAddress[], family?: number) => void) => {
-    dns.lookup(hostname, { ...options, all: true }, (error, addresses) => {
-      if (error) return callback(error);
-      const list = addresses as LookupAddress[];
-      if (!list.length || list.some((entry) => !isAllowed(entry.address))) return callback(refuse(hostname));
-      if (options.all) return callback(null, list);
-      callback(null, list[0].address, list[0].family);
-    });
-  }) as unknown as net.LookupFunction;
+type HopResponse = { status: number; location?: string; headers: http.IncomingHttpHeaders; body: string; bodyTruncated: boolean };
 
-const describeFailure = (error: unknown, host: string) => {
-  if (error instanceof NotificationTargetError) return error;
-  const code = (error as NodeJS.ErrnoException)?.code ?? "";
-  if (code === "ENOTFOUND" || code === "EAI_AGAIN") return new Error(`Notification target ${host} could not be resolved. Check the host name in the URL.`);
-  if (code === "ECONNREFUSED") return new Error(`Notification endpoint ${host} refused the connection. Check the URL and port, and whether the service is running.`);
-  if (code === "ECONNRESET" || code === "EPIPE") return new Error(`Notification endpoint ${host} closed the connection before answering. Try again later or check the endpoint.`);
-  if (/CERT|SELF_SIGNED|ALTNAME|UNABLE_TO_VERIFY/i.test(code)) return new Error(`The TLS certificate of notification endpoint ${host} is not valid (${code}). Fix the certificate or use a different endpoint.`);
-  return new Error(`Could not deliver the notification to ${host}: ${error instanceof Error ? error.message : String(error)}`);
-};
-
-type HopResponse = { status: number; location?: string };
-
-const sendOnce = (target: URL, method: string, headers: Record<string, string>, body: string | undefined, isAllowed: (address: string) => boolean, deadline: number, settings: DeliverySettings) =>
+const sendOnce = (target: URL, hop: Hop) =>
   new Promise<HopResponse>((resolve, reject) => {
+    const { method, headers, body } = hop;
     const transport = target.protocol === "https:" ? https : http;
-    const timeout = new Error(`Notification endpoint ${target.hostname} did not answer within ${settings.timeoutMs / 1000} seconds. Check that it is reachable, or ask the operator to raise NOTIFICATION_TIMEOUT_SECONDS.`);
+    const timeout = hop.wording.timedOut(target.hostname, hop.timeoutMs / 1000);
     const request = transport.request(target, {
       method,
       headers: body === undefined ? headers : { ...headers, "content-length": String(Buffer.byteLength(body)) },
-      lookup: guardedLookup(isAllowed),
+      lookup: guardedLookup(hop.isAllowed, hop.wording.refused),
       agent: false
     }, (response) => {
-      clearTimeout(timer);
-      // Only the status matters; the body is discarded without being buffered.
-      response.on("error", () => undefined);
-      response.resume();
-      resolve({ status: response.statusCode ?? 0, location: response.headers.location });
+      const status = response.statusCode ?? 0;
+      const location = response.headers.location;
+      const answer = (text: string, bodyTruncated: boolean) => settle(() => resolve({ status, location, headers: response.headers, body: text, bodyTruncated }));
+      response.on("error", (error) => settle(() => reject(hop.wording.failed(error, target.hostname))));
+      // A redirect that is followed, and every answer whose body nobody reads, is discarded without being buffered.
+      if (!hop.bodyLimit || (hop.followRedirects && redirectStatuses.has(status) && location)) {
+        response.resume();
+        return answer("", false);
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      response.on("data", (chunk: Buffer) => {
+        const room = hop.bodyLimit - size;
+        if (chunk.length <= room) {
+          chunks.push(chunk);
+          size += chunk.length;
+          return;
+        }
+        chunks.push(chunk.subarray(0, room));
+        answer(Buffer.concat(chunks).toString("utf8"), true);
+        response.destroy();
+      });
+      response.on("end", () => answer(Buffer.concat(chunks).toString("utf8"), false));
     });
-    const timer = setTimeout(() => request.destroy(timeout), Math.max(1, deadline - Date.now()));
-    request.on("error", (error) => {
+    let settled = false;
+    const settle = (finish: () => void) => {
+      if (settled) return;
+      settled = true;
       clearTimeout(timer);
-      reject(error === timeout ? timeout : describeFailure(error, target.hostname));
-    });
+      finish();
+    };
+    // The deadline covers the whole exchange, redirects and body included.
+    const timer = setTimeout(() => {
+      settle(() => reject(timeout));
+      request.destroy(timeout);
+    }, Math.max(1, hop.deadline - Date.now()));
+    request.on("error", (error) => settle(() => reject(error === timeout ? timeout : hop.wording.failed(error, target.hostname))));
     request.end(body);
   });
+
+export type TargetRequest = {
+  url: string;
+  method: "GET" | "POST";
+  headers: Record<string, string>;
+  body?: string;
+  /** Follow redirects up to the limit of the settings; otherwise a redirect is the answer. */
+  followRedirects: boolean;
+  /** Bytes of the final answer's body to read; 0 discards the body. */
+  bodyLimit: number;
+};
+
+export type TargetResponse = {
+  status: number;
+  /** Host and address of the final answer. */
+  host: string;
+  url: string;
+  header: (name: string) => string | undefined;
+  body: string;
+  /** The body was longer than the limit; body holds its beginning. */
+  bodyTruncated: boolean;
+};
+
+const withoutHeaders = (headers: Record<string, string>, names: Set<string>) =>
+  Object.fromEntries(Object.entries(headers).filter(([name]) => !names.has(name.toLowerCase())));
+
+const headerValue = (headers: http.IncomingHttpHeaders, name: string) => {
+  const value = headers[name.toLowerCase()];
+  return Array.isArray(value) ? value.join(", ") : value;
+};
+
+/**
+ * Sends one request to an address that people configure and follows redirects
+ * within the limit of the settings. The address and every redirect target pass
+ * the target policy, on the address the connection uses. Used by webhook and
+ * chat notifications and by HTTP monitors, each with its own settings and wording.
+ */
+export const requestTarget = async (request: TargetRequest, settings: DeliverySettings, wording: TargetWording): Promise<TargetResponse> => {
+  const isAllowed = addressPolicy(settings);
+  const deadline = Date.now() + settings.timeoutMs;
+  let target = parseTarget(request.url, wording);
+  let method: string = request.method;
+  let body = request.body;
+  let headers = request.headers;
+
+  for (let redirects = 0; ; redirects += 1) {
+    const literal = literalAddress(target.hostname);
+    if (literal && !isAllowed(literal)) throw wording.refused(target.hostname);
+    const response = await sendOnce(target, { method, headers, body, isAllowed, deadline, timeoutMs: settings.timeoutMs, bodyLimit: request.bodyLimit, followRedirects: request.followRedirects, wording });
+    if (!request.followRedirects || !redirectStatuses.has(response.status) || !response.location) {
+      return { status: response.status, host: target.hostname, url: target.href, header: (name) => headerValue(response.headers, name), body: response.body, bodyTruncated: response.bodyTruncated };
+    }
+    if (redirects >= settings.maxRedirects) throw wording.tooManyRedirects(target.hostname, settings.maxRedirects);
+    const next = parseTarget(response.location, wording, target);
+    // Credentials stay with the origin they were configured for.
+    if (next.origin !== target.origin) headers = withoutHeaders(headers, credentialHeaders);
+    // Same rule as fetch: 303, and 301/302 after a POST, continue as GET without the body.
+    if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
+      method = "GET";
+      body = undefined;
+      headers = withoutHeaders(headers, bodyHeaders);
+    }
+    target = next;
+  }
+};
 
 /**
  * Sends one notification request and follows redirects within the operator's limit.
  * Every hop is checked against the target policy. Resolves with the final HTTP status.
  */
 export const postNotification = async (request: DeliveryRequest, settings: DeliverySettings = deliverySettingsFromEnv()): Promise<DeliveryResult> => {
-  const isAllowed = addressPolicy(settings);
-  const deadline = Date.now() + settings.timeoutMs;
-  let target = parseTarget(request.url);
-  let method = "POST";
-  let body: string | undefined = request.body;
-  let headers: Record<string, string> = { accept: "*/*", "user-agent": "crt.watch", ...request.headers, "content-type": request.contentType };
-
-  for (let redirects = 0; ; redirects += 1) {
-    const literal = literalAddress(target);
-    if (literal && !isAllowed(literal)) throw blockedTarget(target.hostname);
-    const response = await sendOnce(target, method, headers, body, isAllowed, deadline, settings);
-    if (!redirectStatuses.has(response.status) || !response.location) return { status: response.status, host: target.hostname };
-    if (redirects >= settings.maxRedirects) {
-      throw new Error(`Notification endpoint ${target.hostname} redirected more than ${settings.maxRedirects} times. Use the final address of the endpoint, or ask the operator to raise NOTIFICATION_MAX_REDIRECTS.`);
-    }
-    const next = parseTarget(response.location, target);
-    // Credentials stay with the origin they were configured for.
-    if (next.origin !== target.origin) headers = Object.fromEntries(Object.entries(headers).filter(([name]) => !credentialHeaders.has(name.toLowerCase())));
-    // Same rule as fetch: 303, and 301/302 after a POST, continue as GET without the body.
-    if (response.status === 303 || ((response.status === 301 || response.status === 302) && method === "POST")) {
-      method = "GET";
-      body = undefined;
-      headers = Object.fromEntries(Object.entries(headers).filter(([name]) => !bodyHeaders.has(name.toLowerCase())));
-    }
-    target = next;
-  }
+  const response = await requestTarget({
+    url: request.url,
+    method: "POST",
+    body: request.body,
+    headers: { accept: "*/*", "user-agent": "crt.watch", ...request.headers, "content-type": request.contentType },
+    followRedirects: true,
+    bodyLimit: 0
+  }, settings, notificationWording);
+  return { status: response.status, host: response.host };
 };
 
 const describeMailFailure = (error: unknown, host: string, port: number) => {

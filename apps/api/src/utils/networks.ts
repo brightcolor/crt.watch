@@ -8,8 +8,8 @@ export type NetworkRule = { address: string; prefix: number; type: "ipv4" | "ipv
    private networks, link-local (including the cloud metadata endpoint at
    169.254.169.254), carrier-grade NAT, multicast and reserved space. The list
    follows the registry, so it is not a setting; NOTIFICATION_ALLOWED_NETWORKS
-   opens individual ranges again. */
-const specialPurposeRanges: NetworkRule[] = [
+   and MONITOR_ALLOWED_NETWORKS open individual ranges again. */
+const ipv4Ranges: NetworkRule[] = [
   { address: "0.0.0.0", prefix: 8, type: "ipv4" },
   { address: "10.0.0.0", prefix: 8, type: "ipv4" },
   { address: "100.64.0.0", prefix: 10, type: "ipv4" },
@@ -24,24 +24,42 @@ const specialPurposeRanges: NetworkRule[] = [
   { address: "198.51.100.0", prefix: 24, type: "ipv4" },
   { address: "203.0.113.0", prefix: 24, type: "ipv4" },
   { address: "224.0.0.0", prefix: 4, type: "ipv4" },
-  { address: "240.0.0.0", prefix: 4, type: "ipv4" },
-  { address: "::", prefix: 128, type: "ipv6" },
-  { address: "::1", prefix: 128, type: "ipv6" },
+  { address: "240.0.0.0", prefix: 4, type: "ipv4" }
+];
+
+const ipv6Ranges: NetworkRule[] = [
+  // Unspecified, loopback and the deprecated IPv4-compatible form ::a.b.c.d (RFC 4291).
+  { address: "::", prefix: 96, type: "ipv6" },
+  // IPv4-translated addresses ::ffff:0:a.b.c.d (RFC 2765).
+  { address: "::ffff:0:0:0", prefix: 96, type: "ipv6" },
   { address: "64:ff9b:1::", prefix: 48, type: "ipv6" },
   { address: "100::", prefix: 64, type: "ipv6" },
+  { address: "100:0:0:1::", prefix: 64, type: "ipv6" },
+  // IETF protocol assignments, including Teredo, benchmarking and ORCHID.
+  { address: "2001::", prefix: 23, type: "ipv6" },
   { address: "2001:db8::", prefix: 32, type: "ipv6" },
+  { address: "3fff::", prefix: 20, type: "ipv6" },
+  { address: "5f00::", prefix: 16, type: "ipv6" },
   { address: "fc00::", prefix: 7, type: "ipv6" },
   { address: "fe80::", prefix: 10, type: "ipv6" },
   { address: "fec0::", prefix: 10, type: "ipv6" },
   { address: "ff00::", prefix: 8, type: "ipv6" }
 ];
 
-// NAT64 gateways reach IPv4 hosts through 64:ff9b::/96 (RFC 6052), so the IPv4
-// ranges above are blocked in that form as well. IPv4-mapped IPv6 addresses
-// (::ffff:a.b.c.d) are matched against the IPv4 ranges by BlockList itself.
-const nat64Ranges: NetworkRule[] = specialPurposeRanges
-  .filter((rule) => rule.type === "ipv4")
-  .map((rule) => ({ address: `64:ff9b::${rule.address}`, prefix: 96 + rule.prefix, type: "ipv6" }));
+/* Some IPv6 forms carry an IPv4 address, and a gateway or tunnel delivers them
+   to that IPv4 address, so the IPv4 ranges above are blocked in these forms as
+   well: NAT64 in 64:ff9b::/96 (RFC 6052) holds it in the last 32 bits, 6to4 in
+   2002::/16 (RFC 3056) in bits 16 to 47. IPv4-mapped IPv6 addresses
+   (::ffff:a.b.c.d) are matched against the IPv4 ranges by BlockList itself. */
+const sixToFourPrefix = (ipv4: string) => {
+  const [a, b, c, d] = ipv4.split(".").map(Number);
+  return `2002:${((a << 8) | b).toString(16)}:${((c << 8) | d).toString(16)}::`;
+};
+
+const embeddedIpv4Ranges: NetworkRule[] = ipv4Ranges.flatMap((rule): NetworkRule[] => [
+  { address: `64:ff9b::${rule.address}`, prefix: 96 + rule.prefix, type: "ipv6" },
+  { address: sixToFourPrefix(rule.address), prefix: 16 + rule.prefix, type: "ipv6" }
+]);
 
 const addressType = (address: string) => (net.isIP(address) === 6 ? "ipv6" : "ipv4");
 const withoutZone = (address: string) => address.split("%")[0];
@@ -52,7 +70,7 @@ const blockListOf = (rules: NetworkRule[]) => {
   return list;
 };
 
-const specialPurpose = blockListOf([...specialPurposeRanges, ...nat64Ranges]);
+const specialPurpose = blockListOf([...ipv4Ranges, ...ipv6Ranges, ...embeddedIpv4Ranges]);
 
 /** True for an IP address that is routable on the public internet. */
 export const isPublicAddress = (value: string) => {

@@ -14,7 +14,7 @@ monitorRoutes.get("/", (req, res) => {
   res.json(monitors.list(req.currentTenant!.id).map((monitor) => ({ ...publicMonitor(monitor), latestResult: latest[monitor.id] ?? null })));
 });
 
-monitorRoutes.post("/", requireTenantRole("owner", "admin", "member"), async (req, res) => {
+monitorRoutes.post("/", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const parsed = monitorInputSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid monitor." });
   if (!monitorQuotaAvailable(req.currentTenant!.id)) return res.status(402).json({ error: "Organization monitor limit reached." });
