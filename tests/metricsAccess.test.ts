@@ -1,14 +1,13 @@
 import { removeDatabase } from "./support/isolatedDatabase.js";
-import cookieParser from "cookie-parser";
 import express from "express";
 import { afterAll, describe, expect, it } from "vitest";
-import { attachSession, createPlainApiToken, hashToken } from "../apps/api/src/auth/auth.js";
+import { attachSession } from "../apps/api/src/auth/auth.js";
 import { secretSetting } from "../apps/api/src/config/env.js";
 import { migrate } from "../apps/api/src/storage/db.js";
 import { apiTokens } from "../apps/api/src/storage/repositories.js";
 import { metricsAccess, metricsHandler, type MetricsSettings } from "../apps/api/src/routes/metrics.js";
 import { memberOf, monitorIn, organization } from "./support/fixtures.js";
-import { serve } from "./support/http.js";
+import { readCookies, serve } from "./support/http.js";
 
 /* Who may read /metrics, and what each caller sees. */
 
@@ -20,13 +19,14 @@ const beta = organization("Beta");
 monitorIn(alpha.tenant.id, { name: "alpha.example.com", host: "alpha.example.com" });
 monitorIn(beta.tenant.id, { name: "beta.example.com", host: "beta.example.com" });
 const betaReader = memberOf(beta.tenant.id, "viewer");
-const betaApiToken = createPlainApiToken();
-apiTokens.create("Prometheus", hashToken(betaApiToken), ["read"], betaReader.user.id);
+// A crt.watch API token of a Beta member, stored the way hashToken stores it: SHA-256 in hex.
+const betaApiToken = "cw_metrics-reader-4f1c0a9e7b3d5f2a8c6e1b0d9f7a3c5e";
+apiTokens.create("Prometheus", "8a2733b7f021077a72a3ddc263a956138ce5171b6d95bb0a8bc25a63a3b6c527", ["read"], betaReader.user.id);
 
 const clients: Array<Awaited<ReturnType<typeof serve>>> = [];
 const metricsApp = async (settings: MetricsSettings) => {
   const app = express();
-  app.use(cookieParser());
+  app.use(readCookies);
   app.use(attachSession);
   app.get("/metrics", metricsAccess(settings), metricsHandler);
   app.get("/unguarded", metricsHandler);

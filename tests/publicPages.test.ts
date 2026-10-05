@@ -1,6 +1,5 @@
 import { removeDatabase } from "./support/isolatedDatabase.js";
 import { randomUUID } from "node:crypto";
-import cookieParser from "cookie-parser";
 import express from "express";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -21,14 +20,14 @@ import { publicRoutes } from "../apps/api/src/routes/publicRoutes.js";
 import { findPublishedPage, isPublished, statusPageConflict } from "../apps/api/src/status/publication.js";
 import type { CheckResult, StatusPageConfig } from "../apps/api/src/types.js";
 import { monitorIn, organization, resultFor } from "./support/fixtures.js";
-import { serve } from "./support/http.js";
+import { readCookies, serve } from "./support/http.js";
 
 migrate();
 
 const app = express();
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
-app.use(cookieParser());
+app.use(readCookies);
 app.use(attachSession);
 app.use("/api", apiRoutes);
 app.use("/public", publicRoutes);

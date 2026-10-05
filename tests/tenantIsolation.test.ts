@@ -1,6 +1,5 @@
 import { removeDatabase } from "./support/isolatedDatabase.js";
 import { randomUUID } from "node:crypto";
-import cookieParser from "cookie-parser";
 import express from "express";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { attachSession } from "../apps/api/src/auth/auth.js";
@@ -10,7 +9,7 @@ import { apiRoutes } from "../apps/api/src/routes/index.js";
 import { DEFAULT_TENANT_ID } from "../apps/api/src/types.js";
 import type { CheckResult } from "../apps/api/src/types.js";
 import { account, memberOf, monitorIn, organization, resultFor } from "./support/fixtures.js";
-import { serve } from "./support/http.js";
+import { readCookies, serve } from "./support/http.js";
 
 /* Two organizations side by side on one instance: whatever one of them lists,
    acknowledges, deletes or restores stays inside it. */
@@ -19,7 +18,7 @@ migrate();
 
 const app = express();
 app.use(express.json());
-app.use(cookieParser());
+app.use(readCookies);
 app.use(attachSession);
 app.use("/api", apiRoutes);
 const client = await serve(app);

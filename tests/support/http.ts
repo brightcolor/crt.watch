@@ -1,6 +1,18 @@
 import type { Server } from "node:http";
 import type { AddressInfo } from "node:net";
-import type { Express } from "express";
+import type { Express, NextFunction, Request, Response } from "express";
+
+/**
+ * Puts the Cookie header into req.cookies, which is all the session lookup
+ * needs from cookie-parser; the CSRF check of requireAuth runs unchanged.
+ */
+export const readCookies = (req: Request, _res: Response, next: NextFunction) => {
+  req.cookies = Object.fromEntries((req.headers.cookie ?? "").split(";").map((part) => part.trim()).filter(Boolean).map((part) => {
+    const separator = part.indexOf("=");
+    return separator < 0 ? [part, ""] : [part.slice(0, separator), decodeURIComponent(part.slice(separator + 1))];
+  }));
+  next();
+};
 
 export type Session = { token: string; csrfToken: string };
 

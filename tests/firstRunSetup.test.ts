@@ -3,7 +3,6 @@ import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import cookieParser from "cookie-parser";
 import express from "express";
 import { afterAll, describe, expect, it } from "vitest";
 import { attachSession } from "../apps/api/src/auth/auth.js";
@@ -15,8 +14,8 @@ import { auditLogs, tenants, users } from "../apps/api/src/storage/repositories.
 import { apiRoutes } from "../apps/api/src/routes/index.js";
 import { publicRoutes } from "../apps/api/src/routes/publicRoutes.js";
 import { pageHandler, setupClosedPage } from "../apps/api/src/render/pages.js";
-import { authLimiter } from "../apps/api/src/security/rateLimits.js";
-import { serve } from "./support/http.js";
+import { authLimiter, createRequestLimiter } from "../apps/api/src/security/rateLimits.js";
+import { readCookies, serve } from "./support/http.js";
 
 /* A fresh instance: every page leads to the setup, which asks for the code
    from the server log, creates the first administrator and then closes. */
@@ -27,8 +26,10 @@ const webDist = fs.mkdtempSync(path.join(os.tmpdir(), "crtwatch-web-"));
 fs.writeFileSync(path.join(webDist, "index.html"), "<!doctype html><title>crt.watch</title><div id=\"root\"></div>");
 
 const app = express();
+// Like the server: every request passes the general limit, set high enough for this file.
+app.use(createRequestLimiter({ windowSeconds: 60, maxRequests: 10_000 }));
 app.use(express.json());
-app.use(cookieParser());
+app.use(readCookies);
 app.use(attachSession);
 app.use("/api", apiRoutes);
 app.use("/public", publicRoutes);
