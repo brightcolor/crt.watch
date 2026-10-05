@@ -102,6 +102,17 @@ export const subscriptionPagePath = (subscription: Pick<StatusSubscription, "pag
   `/public/status/${encodeURIComponent(subscription.pageSlug ?? subscription.tags.join("+"))}.html`;
 
 /**
+ * The page a subscription was made on, in the subscription's organization: the
+ * page with its slug, and for a subscription from before slugs the enabled page
+ * with its labels. Null when that page no longer exists.
+ */
+export const subscriptionPage = (subscription: Pick<StatusSubscription, "tenantId" | "pageSlug" | "tags">): StatusPageConfig | null => {
+  const pages = appSettings.statusPages(subscription.tenantId).pages ?? [];
+  if (subscription.pageSlug) return pages.find((page) => page.slug === subscription.pageSlug) ?? null;
+  return pages.find((page) => page.enabled && sameLabels(page.tags, subscription.tags)) ?? null;
+};
+
+/**
  * Why these pages cannot be saved for the organization, or null. A slug is a
  * public address, so it may appear only once, here and in every other
  * organization, including on disabled pages that may be enabled again.

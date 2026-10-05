@@ -4,9 +4,10 @@ import { createBackup, deleteBackup, findBackupPath, listBackups } from "../back
 import { createPlainApiToken, hashToken, requireAdmin, requireTenantRole } from "../auth/auth.js";
 import { discoverMonitors } from "../checks/discovery.js";
 import { buildManualSslLabsResult, normalizeSslLabsHost, runManualSslLabsAssessment } from "../checks/sslLabsManual.js";
-import { apiTokens, appSettings, auditLogs, deliveries, incidents, monitors, results, tenants, users } from "../storage/repositories.js";
+import { apiTokens, appSettings, auditLogs, deliveries, incidents, monitors, results, users } from "../storage/repositories.js";
 import { statusPageConflict, statusPagesSchema } from "../status/publication.js";
 import { id } from "../utils/id.js";
+import { monitorLimitReached, monitorQuota } from "./monitorQuota.js";
 import { monitorInputSchema, monitorTypes } from "./monitorSchemas.js";
 import type { DiscoveredMonitor, Monitor } from "../types.js";
 
@@ -82,6 +83,7 @@ opsRoutes.post("/discovery/import", requireTenantRole("owner", "admin", "member"
   const settings = appSettings.discovery(req.currentTenant!.id);
   const requested = parsed.data.monitors?.length ? parsed.data.monitors : settings.suggestions;
   const existing = new Set(monitors.list(req.currentTenant!.id).map(monitorKey));
+  const quota = monitorQuota(req.currentTenant!.id);
   const created: Monitor[] = [];
   const skipped: DiscoveredMonitor[] = [];
   const errors: Array<{ monitor: DiscoveredMonitor; error: string }> = [];
@@ -90,8 +92,8 @@ opsRoutes.post("/discovery/import", requireTenantRole("owner", "admin", "member"
       skipped.push(suggestion);
       continue;
     }
-    if (!monitorQuotaAvailable(req.currentTenant!.id, created.length)) {
-      errors.push({ monitor: suggestion, error: "Organization monitor limit reached." });
+    if (created.length >= quota.left) {
+      errors.push({ monitor: suggestion, error: monitorLimitReached(quota) });
       continue;
     }
     const parsedMonitor = monitorInputSchema.safeParse(monitorFromDiscovery(suggestion));
@@ -153,7 +155,8 @@ opsRoutes.get("/audit-log", requireTenantRole("owner", "admin"), (req, res) => {
 });
 opsRoutes.get("/reports/availability", (req, res) => res.json(availabilityReport(req.currentTenant!.id, Number(req.query.days ?? 30))));
 
-opsRoutes.post("/incidents/:id/ack", (req, res) => {
+// Acknowledging and annotating change the incident, so they need the role that operates monitors.
+opsRoutes.post("/incidents/:id/ack", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const parsed = z.object({
     assignee: z.string().max(120).optional().nullable(),
     comment: z.string().trim().max(2000).optional()
@@ -165,7 +168,7 @@ opsRoutes.post("/incidents/:id/ack", (req, res) => {
   res.json(incident);
 });
 
-opsRoutes.post("/incidents/:id/notes", (req, res) => {
+opsRoutes.post("/incidents/:id/notes", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const parsed = z.object({ text: z.string().trim().min(1).max(2000) }).safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: "Enter a note with at most 2000 characters." });
   const incident = incidents.addNote(req.params.id, req.currentTenant!.id, req.user!.email, parsed.data.text);
@@ -294,11 +297,6 @@ const monitorFromDiscovery = (item: DiscoveredMonitor) => ({
   config: item.type === "https" && item.port === 443 ? { sslLabsEnabled: false } : {},
   maintenanceWindows: null
 });
-
-const monitorQuotaAvailable = (tenantId: string, pending = 0) => {
-  const tenant = tenants.get(tenantId);
-  return !tenant || tenant.monitorLimit <= 0 || monitors.list(tenantId).length + pending < tenant.monitorLimit;
-};
 
 const registerWithSslLabs = async (payload: z.infer<typeof sslLabsRegistrationSchema>) => {
   const controller = new AbortController();

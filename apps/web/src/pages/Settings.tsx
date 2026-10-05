@@ -30,6 +30,17 @@ export function Settings(props: any) {
   const [retentionForm, setRetentionForm] = useState(retention);
   const [ctForm, setCtForm] = useState(ctWatch);
   const [ctResult, setCtResult] = useState<any>(null);
+  const [ctError, setCtError] = useState("");
+  // A check that did not run shows the reason the server gave, such as the role it needs.
+  const checkCtWatch = async () => {
+    setCtError("");
+    try {
+      setCtResult(await props.onCheckCtWatch());
+    } catch (error) {
+      setCtResult(null);
+      setCtError(error instanceof Error ? error.message : "The certificate transparency check did not run. Try again later.");
+    }
+  };
   // The answer of the last test per channel: delivered, or the reason the server gave.
   const [testResults, setTestResults] = useState<Record<string, { ok: boolean; message: string }>>({});
   const testChannel = async (id: string) => {
@@ -136,8 +147,9 @@ export function Settings(props: any) {
           {ctForm && <>
             <label className="inline"><input type="checkbox" checked={ctForm.enabled} onChange={(e) => setCtForm({ ...ctForm, enabled: e.target.checked })} /> Enabled</label>
             <label>Watched domains<textarea value={(ctForm.domains ?? []).join("\n")} placeholder="example.com" onChange={(e) => setCtForm({ ...ctForm, domains: e.target.value.split(/\s+/).map((value) => value.trim()).filter(Boolean) })} /></label>
-            <div className="actions"><button className="btn btn-primary" onClick={() => props.onSaveCtWatch(ctForm)}>Save CT watch</button><button className="btn btn-outline-secondary" onClick={async () => setCtResult(await props.onCheckCtWatch())}>Check now</button></div>
+            <div className="actions"><button className="btn btn-primary" onClick={() => props.onSaveCtWatch(ctForm)}>Save CT watch</button><button className="btn btn-outline-secondary" onClick={checkCtWatch}>Check now</button></div>
             {ctResult && <p className="muted">{ctResult.changes?.length ? `${ctResult.changes.length} CT changes found.` : "No CT changes found."}</p>}
+            {ctError && <p className="error" role="status">{ctError}</p>}
           </>}
         </div>
         <div className="panel">

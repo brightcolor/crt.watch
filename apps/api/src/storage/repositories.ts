@@ -387,6 +387,10 @@ export const monitors = {
   list(tenantId = DEFAULT_TENANT_ID): Monitor[] {
     return db.prepare("SELECT * FROM monitors WHERE tenant_id = ? ORDER BY name").all(tenantId).map(rowToMonitor);
   },
+  count(tenantId: string): number {
+    const row = db.prepare("SELECT COUNT(*) AS count FROM monitors WHERE tenant_id = ?").get(tenantId) as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  },
   /** Monitors of every organization that has not been deleted, for the operator's metrics. */
   listAll(): Monitor[] {
     return db.prepare(`
@@ -480,14 +484,19 @@ export const results = {
       `).all();
     return Object.fromEntries(rows.map((row: any) => [row.monitor_id, rowToResult(row)]));
   },
-  latestSslLabsForHost(host: string): CheckResult | undefined {
+  /**
+   * The newest SSL Labs assessment of a host among the organization's monitors.
+   * Each organization assesses with its own SSL Labs account and settings, so
+   * an assessment is reused only within the organization that ran it.
+   */
+  latestSslLabsForHost(host: string, tenantId: string): CheckResult | undefined {
     const row = db.prepare(`
       SELECT cr.* FROM check_results cr
       JOIN monitors m ON m.id = cr.monitor_id
-      WHERE lower(m.host) = lower(?) AND cr.ssl_labs_checked_at IS NOT NULL
+      WHERE lower(m.host) = lower(?) AND m.tenant_id = ? AND cr.ssl_labs_checked_at IS NOT NULL
       ORDER BY cr.ssl_labs_checked_at DESC
       LIMIT 1
-    `).get(host);
+    `).get(host, tenantId);
     return row ? rowToResult(row) : undefined;
   },
   insert(result: CheckResult) {

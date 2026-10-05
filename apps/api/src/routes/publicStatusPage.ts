@@ -1,4 +1,4 @@
-import type { Incident, MonitorStatus } from "../types.js";
+import type { CheckResult, Incident, Monitor, MonitorStatus, StatusPageConfig } from "../types.js";
 
 /* Host and port are left out when the page hides host names, so the JSON
    address shows what the HTML page shows. */
@@ -12,6 +12,23 @@ export type PublicMonitor = {
   daysRemaining: number | null;
   message: string;
 };
+
+/* What a monitor shows in public: its name, state and latest message, and its
+   host and port while the page shows host names. The status page, its JSON and
+   the updates to its subscribers are all built from this. */
+export const publicMonitor = (
+  monitor: Pick<Monitor, "id" | "name" | "host" | "port" | "lastStatus">,
+  result: Pick<CheckResult, "checkedAt" | "daysRemaining" | "message"> | undefined,
+  page: Pick<StatusPageConfig, "hideHostnames">
+): PublicMonitor => ({
+  id: monitor.id,
+  name: monitor.name,
+  ...(page.hideHostnames ? {} : { host: monitor.host, port: monitor.port }),
+  status: monitor.lastStatus,
+  checkedAt: result?.checkedAt ?? null,
+  daysRemaining: result?.daysRemaining ?? null,
+  message: result?.message ?? "No check result yet."
+});
 
 /* What an incident shows in public: no acknowledgement, assignee or notes,
    which are the organization's internal working state. */

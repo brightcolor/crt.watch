@@ -25,6 +25,17 @@ export function MonitorDetail({ monitor, results, incidents, onBack, onEdit, onC
   const [assignee, setAssignee] = useState("");
   const [note, setNote] = useState("");
   const [sslLabsState, setSslLabsState] = useState({ busy: false, message: "" });
+  const [incidentError, setIncidentError] = useState("");
+  // A refused acknowledgement or note shows the reason the server gave, such as the role it needs.
+  const changeIncident = async (change: () => Promise<void>) => {
+    setIncidentError("");
+    try {
+      await change();
+      setNote("");
+    } catch (error) {
+      setIncidentError(error instanceof Error ? error.message : "The incident could not be changed. Reload the page and try again.");
+    }
+  };
   const latest = results[0] ?? monitor.latestResult;
   const origin = window.location.origin;
   const statusTag = monitor.tags[0] ?? "all";
@@ -114,9 +125,10 @@ export function MonitorDetail({ monitor, results, incidents, onBack, onEdit, onC
         {incidents[0] && !incidents[0].resolvedAt && <div className="grid two">
           <label>Assignee<input value={assignee} onChange={(e) => setAssignee(e.target.value)} placeholder="Team or person" /></label>
           <label>Required comment<input required value={note} onChange={(e) => setNote(e.target.value)} placeholder="What happened and what was checked?" /></label>
-          <div className="actions"><button className="btn btn-primary" disabled={!note.trim()} onClick={async () => { await onAck(incidents[0].id, assignee, note); setNote(""); }}>Acknowledge with comment</button>
-          <button className="btn btn-outline-secondary" disabled={!note.trim()} onClick={async () => { await onNote(incidents[0].id, note); setNote(""); }}>Add note</button></div>
+          <div className="actions"><button className="btn btn-primary" disabled={!note.trim()} onClick={() => changeIncident(() => onAck(incidents[0].id, assignee, note))}>Acknowledge with comment</button>
+          <button className="btn btn-outline-secondary" disabled={!note.trim()} onClick={() => changeIncident(() => onNote(incidents[0].id, note))}>Add note</button></div>
         </div>}
+        {incidentError && <p className="error" role="status">{incidentError}</p>}
         {incidents[0]?.notes?.length > 0 && <div className="stack-list">{incidents[0].notes.map((item) => <div key={item.id}><strong>{item.author}</strong><span>{item.text}</span><small>{dateTime(item.createdAt)}</small></div>)}</div>}
       </Panel>
       <Panel title="Check history">
