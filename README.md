@@ -248,6 +248,12 @@ crt.watch can monitor certificate-focused targets and general service availabili
 
 Checks reach public addresses only, with the same address check as notifications: a monitor's host is checked when the monitor is saved and before every check, and every connection a check opens, including each redirect of an HTTP check, uses only addresses that pass. Loopback, private, link-local, carrier-grade NAT, multicast and reserved ranges are refused, also in their IPv4-mapped, NAT64 and 6to4 forms. To monitor hosts in your own network, list their addresses or networks in `MONITOR_ALLOWED_NETWORKS`, or allow every internal target with `ALLOW_PRIVATE_TARGETS=true` on an instance where every user who can create monitors is trusted. HTTP checks follow at most `MONITOR_MAX_REDIRECTS` redirects within the monitor's timeout and look for the expected text in the first `MONITOR_HTTP_BODY_LIMIT_KB` of the response. See [Security Settings](#security-settings).
 
+The DNS details of a monitor query the authoritative nameservers of its zone on the addresses that pass the same check, with the same settings. When every address of those nameservers is internal, the DNS details say so and skip the comparison with authoritative DNS.
+
+Besides the monitor's timeout, which ends every wait without an answer, two limits end a check's conversation with the service: the STARTTLS negotiation, the banner and a login read at most `MONITOR_PROTOCOL_READ_LIMIT_KB` each, and all connections of one check — TLS handshake, STARTTLS negotiation, banner, login and the probes of the intensive TLS assessment — end after `MONITOR_CHECK_DEADLINE_SECONDS` together. A slow service therefore keeps the scheduler busy for that long at most, and the message of the check names the setting to raise.
+
+The scheduler looks for due monitors every `SCHEDULER_INTERVAL_SECONDS` and checks up to `CHECK_CONCURRENCY` of them at a time; the same run removes old results and runs scheduled discovery and backups. When a step fails, crt.watch writes the reason to its log with a reference, runs the remaining steps and tries the failed one again at the next run.
+
 Keep `SESSION_SECRET` stable after first deployment. It is used to decrypt stored service-login passwords and provider secrets.
 Monitor JSON exports mask stored secrets and are suitable for moving monitor definitions, not for full secret-bearing backups.
 
@@ -464,7 +470,7 @@ The rate limits count requests per client address. With `TRUST_PROXY` set, crt.w
 
 ## Security Settings
 
-These environment variables control the protections added in the security hardening. Every value is checked when crt.watch starts; an invalid value stops the start with a message that names the variable, the accepted values and the default.
+These environment variables control the protections added in the security hardening, the limits of checks and the scheduler. Every value is checked when crt.watch starts; an invalid value stops the start with a message that names the variable, the accepted values and the default.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
@@ -476,6 +482,12 @@ These environment variables control the protections added in the security harden
 | `MONITOR_ALLOWED_NETWORKS` | empty | Internal addresses or networks that monitors may check even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
 | `MONITOR_MAX_REDIRECTS` | `20` | Redirects that an HTTP monitor follows when it follows redirects or logs in with basic authentication (0 to 20). Every redirect target is checked like the monitor's host. |
 | `MONITOR_HTTP_BODY_LIMIT_KB` | `1024` | Kilobytes of an HTTP response that a check reads to find the expected text (1 to 65536). |
+| `MONITOR_PROTOCOL_READ_LIMIT_KB` | `64` | Kilobytes a check reads from a service during the STARTTLS negotiation, the banner or a login (1 to 1024). A service that sends more ends the check with a message that names this setting. |
+| `MONITOR_CHECK_DEADLINE_SECONDS` | `60` | Seconds that all connections of one check may stay open together: TLS handshake, STARTTLS negotiation, banner, login and the probes of the intensive TLS assessment (1 to 600). The monitor's timeout still ends every wait without an answer. |
+| `MONITOR_TLS_PROBE_TIMEOUT_SECONDS` | `3` | Seconds each probe of the intensive TLS assessment waits for an answer; a shorter monitor timeout applies (1 to 120). |
+| `MONITOR_DNS_NAMESERVER_LIMIT` | `4` | Authoritative nameservers of a monitored zone whose addresses the DNS details resolve (1 to 13). |
+| `MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT` | `6` | Addresses of those nameservers that the DNS details query, after the monitor target check (1 to 26). |
+| `SCHEDULER_INTERVAL_SECONDS` | `30` | How often the scheduler looks for due monitors, discovery runs and backups (5 to 3600). |
 | `ALLOW_PRIVATE_NOTIFICATION_TARGETS` | `false` | `true` lets webhook, chat and email notifications reach loopback, private and link-local addresses, including SMTP servers. Use it only where every user who can configure channels and SMTP settings is trusted. |
 | `NOTIFICATION_ALLOWED_NETWORKS` | empty | Internal addresses or networks that notifications, including SMTP servers, may reach even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
 | `NOTIFICATION_MAX_REDIRECTS` | `3` | Redirects a notification request follows (0 to 10). Every redirect target is checked like the original URL. |
@@ -538,6 +550,16 @@ Check these points before or right after the update, also on installations that 
 3. Scripts that sign in or change something without an API token send their body as JSON (`Content-Type: application/json`), and with a session also the `X-CSRF-Token` header. Scripts with an API token keep working as before.
 4. HTTP monitors read up to `MONITOR_HTTP_BODY_LIMIT_KB` (1024 KB) of a response for the expected text and follow up to `MONITOR_MAX_REDIRECTS` (20) redirects. They send the user agent `crt.watch`.
 
+### Upgrading to check limits and error references
+
+Check these points before or right after the update, also on installations that Watchtower updates:
+
+1. Check limits: a check reads at most `MONITOR_PROTOCOL_READ_LIMIT_KB` (64 KB) during a STARTTLS negotiation, a banner or a login, and all its connections end after `MONITOR_CHECK_DEADLINE_SECONDS` (60) together. A monitor of a service that needs more, for example a mail server with a long greeting delay, reports which setting to raise.
+2. Messages: a STARTTLS negotiation, banner, login or TLS handshake that gets no answer or ends early reports what happened and what to check. A monitor that is down with such a message sends one alert with the new wording.
+3. DNS details: the authoritative nameservers of a monitored zone are queried on addresses that pass the monitor target check. For a zone whose nameservers sit in an internal network, the DNS details report that the comparison with authoritative DNS is skipped; add the addresses they list to `MONITOR_ALLOWED_NETWORKS`. With DNS change alerts on, such a monitor reports one DNS change.
+4. Errors: a failed request answers with JSON and a reference that the server log carries, a request body that is not JSON answers 400 and a body over the limit 413. A failed step of the scheduler is logged with a reference and the next step, and the scheduler goes on.
+5. Settings: the new settings start with their defaults and are validated at start. The Compose file passes each setting by name, so a setting that should differ from its default needs its line under `environment` as well as its value in `.env`.
+
 ## Troubleshooting
 
 - Login fails on a fresh install: every page leads to the setup screen; create the first admin user there with the setup code from `docker compose exec crt-watch node apps/api/dist/cli.js setup-code`. For an existing install, reset the password in the SQLite database or recreate the bind-mounted data directory if no data must be kept.
@@ -545,6 +567,10 @@ Check these points before or right after the update, also on installations that 
 - Creating a user fails: make sure the current account has the Admin role, the email address is not already used, and the password has at least `PASSWORD_MIN_LENGTH` characters (12 by default).
 - A check reports "Monitor target … points to a private, loopback or link-local address": add the address or network of the host to `MONITOR_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_TARGETS=true` if every user who can create monitors is trusted.
 - An HTTP check reports "did not contain the expected text within its first … KB": check the expected text, or raise `MONITOR_HTTP_BODY_LIMIT_KB` when the text sits further down in a large page.
+- A check reports "The server sent more than … KB during the …": check that the monitor uses the right port and protocol, or raise `MONITOR_PROTOCOL_READ_LIMIT_KB`.
+- A check reports "did not finish within the … seconds a check may take": check how long the service takes to answer, or raise `MONITOR_CHECK_DEADLINE_SECONDS`.
+- The DNS details report that the authoritative nameservers "resolve only to private, loopback or link-local addresses": add the listed addresses to `MONITOR_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_TARGETS=true` if every user who can create monitors is trusted.
+- An error message names a reference, or the server log shows "… failed (reference …)": the log line with that reference names the failed request or scheduler step and the error, and for a scheduler step what to check. crt.watch keeps running and tries failed scheduler steps again at the next run.
 - A change answers 403 "did not carry the security token of your session": reload the page and try again; scripts use an API token in the `Authorization` header. A sign-in from a script answers 415 "accepts this request as JSON only": send the body as JSON.
 - Notifications to a service on the local network fail with "is a private, loopback or link-local address", or email fails with "SMTP server … is a private, loopback or link-local address": add the address of the service or mail relay to `NOTIFICATION_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` if every user who can configure channels and SMTP settings is trusted.
 - Prometheus gets 401 from `/metrics`: set `METRICS_TOKEN` and send it as bearer token, as described in [Prometheus](#prometheus).
