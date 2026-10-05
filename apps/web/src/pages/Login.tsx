@@ -2,9 +2,12 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { BrandMark } from "../components/BrandMark";
 
-export function Login({ setupRequired, registrationEnabled, onLogin, onBack, onRegister }: {
+export function Login({ setupRequired, registrationEnabled, passwordMinLength, setupCodeCommand, onLogin, onBack, onRegister }: {
   setupRequired: boolean;
   registrationEnabled?: boolean;
+  passwordMinLength?: number;
+  /** The command that prints the setup code on the server, from /auth/config. */
+  setupCodeCommand?: string;
   onLogin: (result: any) => void;
   onBack?: () => void;
   onRegister?: () => void;
@@ -13,6 +16,7 @@ export function Login({ setupRequired, registrationEnabled, onLogin, onBack, onR
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [organizationName, setOrganizationName] = useState("Default organization");
+  const [setupCode, setSetupCode] = useState("");
   const [error, setError] = useState("");
   const [mfaToken, setMfaToken] = useState("");
   const [mfaCode, setMfaCode] = useState("");
@@ -25,7 +29,8 @@ export function Login({ setupRequired, registrationEnabled, onLogin, onBack, onR
       return;
     }
     try {
-      const result = await api.request<any>(setupRequired ? "/auth/setup" : "/auth/login", { method: "POST", body: JSON.stringify({ email, password, organizationName }) });
+      const body = setupRequired ? { email, password, organizationName, setupCode } : { email, password };
+      const result = await api.request<any>(setupRequired ? "/auth/setup" : "/auth/login", { method: "POST", body: JSON.stringify(body) });
       if (result.mfaRequired) {
         setMfaToken(result.mfaToken);
         return;
@@ -77,11 +82,13 @@ export function Login({ setupRequired, registrationEnabled, onLogin, onBack, onR
       <form onSubmit={submit} className="login-panel">
         <span className="brand-line"><BrandMark size={18} /> crt.watch</span>
         <h1>{setupRequired ? "Create admin" : "Sign in"}</h1>
-        {setupRequired && <p className="muted">Create the first administrator account for this crt.watch instance.</p>}
+        {setupRequired && <p className="muted">Create the first administrator account for this crt.watch instance. The setup code is in the server log of the current start{setupCodeCommand ? <>, or print it on the server with <code>{setupCodeCommand}</code></> : null}.</p>}
+        {setupRequired && <label>Setup code<input value={setupCode} onChange={(e) => setSetupCode(e.target.value)} autoComplete="off" spellCheck={false} placeholder="XXXX-XXXX-XXXX-XXXX" required /></label>}
         <label>Email<input value={email} onChange={(e) => setEmail(e.target.value)} /></label>
         {setupRequired && <label>Organization<input value={organizationName} onChange={(e) => setOrganizationName(e.target.value)} /></label>}
-        <label>Password<input type="password" value={password} onChange={(e) => setPassword(e.target.value)} /></label>
-        {setupRequired && <label>Confirm password<input type="password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>}
+        <label>Password<input type="password" autoComplete={setupRequired ? "new-password" : "current-password"} minLength={setupRequired ? passwordMinLength : undefined} value={password} onChange={(e) => setPassword(e.target.value)} /></label>
+        {setupRequired && passwordMinLength && <p className="form-note">At least {passwordMinLength} characters.</p>}
+        {setupRequired && <label>Confirm password<input type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} /></label>}
         {error && <p className="error">{error}</p>}
         <button className="btn btn-primary" type="submit">{setupRequired ? "Create admin" : "Sign in"}</button>
         {!setupRequired && registrationEnabled && onRegister && <button className="btn btn-outline-secondary" type="button" onClick={onRegister}>Create organization</button>}

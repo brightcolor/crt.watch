@@ -100,6 +100,7 @@ export function MonitorDetail({ monitor, results, incidents, onBack, onEdit, onC
       </Panel>}
       <DnsPanel result={latest} />
       <Panel title="Embed">
+        <p className="muted">The badge shows this monitor's state while a published status page in Operations covers it; otherwise it reads unknown.</p>
         <EmbedRow label="Badge URL" value={badgeUrl} />
         <EmbedRow label="Alias badge URL" value={aliasBadgeUrl} />
         <EmbedRow label="Markdown" value={markdownBadge} />

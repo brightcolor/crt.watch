@@ -11,6 +11,11 @@ export const users = {
     const row = db.prepare("SELECT COUNT(*) AS count FROM users").get() as { count?: number } | undefined;
     return Number(row?.count ?? 0);
   },
+  /** Platform administrators; the first-run setup stays open while there are none. */
+  countAdmins(): number {
+    const row = db.prepare("SELECT COUNT(*) AS count FROM users WHERE role IN ('super_admin', 'admin')").get() as { count?: number } | undefined;
+    return Number(row?.count ?? 0);
+  },
   findByEmail(email: string): User | null {
     const row = db.prepare("SELECT * FROM users WHERE email = ?").get(email.toLowerCase());
     return row ? rowToUser(row) : null;
@@ -382,6 +387,15 @@ export const monitors = {
   list(tenantId = DEFAULT_TENANT_ID): Monitor[] {
     return db.prepare("SELECT * FROM monitors WHERE tenant_id = ? ORDER BY name").all(tenantId).map(rowToMonitor);
   },
+  /** Monitors of every organization that has not been deleted, for the operator's metrics. */
+  listAll(): Monitor[] {
+    return db.prepare(`
+      SELECT m.* FROM monitors m
+      JOIN tenants t ON t.id = m.tenant_id
+      WHERE t.deleted_at IS NULL
+      ORDER BY t.name, m.name
+    `).all().map(rowToMonitor);
+  },
   due(limit: number): Monitor[] {
     return db
       .prepare("SELECT * FROM monitors WHERE enabled = 1 AND (next_check_at IS NULL OR next_check_at <= ?) LIMIT ?")
@@ -446,12 +460,24 @@ export const results = {
       .all(monitorId, limit)
       .map(rowToResult);
   },
-  latestByMonitor(): Record<string, CheckResult> {
-    const rows = db.prepare(`
-      SELECT cr.* FROM check_results cr
-      JOIN (SELECT monitor_id, MAX(checked_at) checked_at FROM check_results GROUP BY monitor_id) latest
-      ON cr.monitor_id = latest.monitor_id AND cr.checked_at = latest.checked_at
-    `).all();
+  /** The newest result per monitor; with a tenant only for that organization's monitors. */
+  latestByMonitor(tenantId?: string): Record<string, CheckResult> {
+    const rows = tenantId
+      ? db.prepare(`
+        SELECT cr.* FROM check_results cr
+        JOIN (
+          SELECT r.monitor_id, MAX(r.checked_at) checked_at FROM check_results r
+          JOIN monitors m ON m.id = r.monitor_id
+          WHERE m.tenant_id = ?
+          GROUP BY r.monitor_id
+        ) latest
+        ON cr.monitor_id = latest.monitor_id AND cr.checked_at = latest.checked_at
+      `).all(tenantId)
+      : db.prepare(`
+        SELECT cr.* FROM check_results cr
+        JOIN (SELECT monitor_id, MAX(checked_at) checked_at FROM check_results GROUP BY monitor_id) latest
+        ON cr.monitor_id = latest.monitor_id AND cr.checked_at = latest.checked_at
+      `).all();
     return Object.fromEntries(rows.map((row: any) => [row.monitor_id, rowToResult(row)]));
   },
   latestSslLabsForHost(host: string): CheckResult | undefined {
@@ -505,9 +531,17 @@ export const results = {
   }
 };
 
+/* Incidents, alert history and deliveries carry no organization of their own;
+   they belong to the organization of their monitor, so every read and write
+   that comes from a request joins the monitor and checks its tenant. */
 export const incidents = {
-  list(limit = 100): Incident[] {
-    return db.prepare("SELECT * FROM incidents ORDER BY started_at DESC LIMIT ?").all(limit).map(rowToIncident);
+  list(tenantId: string, limit = 100): Incident[] {
+    return db.prepare(`
+      SELECT i.* FROM incidents i
+      JOIN monitors m ON m.id = i.monitor_id
+      WHERE m.tenant_id = ?
+      ORDER BY i.started_at DESC LIMIT ?
+    `).all(tenantId, limit).map(rowToIncident);
   },
   listForMonitor(monitorId: string, limit = 50): Incident[] {
     return db.prepare("SELECT * FROM incidents WHERE monitor_id = ? ORDER BY started_at DESC LIMIT ?").all(monitorId, limit).map(rowToIncident);
@@ -530,18 +564,24 @@ export const incidents = {
     db.prepare("INSERT INTO incidents VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(incident.id, incident.monitorId, incident.status, incident.severity, incident.message, incident.startedAt, incident.resolvedAt, incident.acknowledgedAt, incident.acknowledgedBy, incident.assignee, JSON.stringify(incident.notes));
     return incident;
   },
-  acknowledge(incidentId: string, userEmail: string, assignee?: string | null, comment?: string | null): Incident | null {
+  /** Null when the incident does not exist or belongs to a monitor of another organization. */
+  acknowledge(incidentId: string, tenantId: string, userEmail: string, assignee?: string | null, comment?: string | null): Incident | null {
+    if (!this.get(incidentId, tenantId)) return null;
     db.prepare("UPDATE incidents SET acknowledged_at = ?, acknowledged_by = ?, assignee = COALESCE(?, assignee) WHERE id = ?").run(nowIso(), userEmail, assignee ?? null, incidentId);
-    return comment?.trim() ? this.addNote(incidentId, userEmail, comment.trim()) : this.get(incidentId);
+    return comment?.trim() ? this.addNote(incidentId, tenantId, userEmail, comment.trim()) : this.get(incidentId, tenantId);
   },
-  get(incidentId: string): Incident | null {
-    const row = db.prepare("SELECT * FROM incidents WHERE id = ?").get(incidentId);
+  get(incidentId: string, tenantId: string): Incident | null {
+    const row = db.prepare(`
+      SELECT i.* FROM incidents i
+      JOIN monitors m ON m.id = i.monitor_id
+      WHERE i.id = ? AND m.tenant_id = ?
+    `).get(incidentId, tenantId);
     return row ? rowToIncident(row) : null;
   },
-  addNote(incidentId: string, userEmail: string, text: string): Incident | null {
-    const row = db.prepare("SELECT * FROM incidents WHERE id = ?").get(incidentId);
-    if (!row) return null;
-    const current = rowToIncident(row);
+  /** Null when the incident does not exist or belongs to a monitor of another organization. */
+  addNote(incidentId: string, tenantId: string, userEmail: string, text: string): Incident | null {
+    const current = this.get(incidentId, tenantId);
+    if (!current) return null;
     const note: IncidentNote = { id: id(), author: userEmail, text, createdAt: nowIso() };
     const notes = [...current.notes, note];
     db.prepare("UPDATE incidents SET notes_json = ? WHERE id = ?").run(JSON.stringify(notes), incidentId);
@@ -550,8 +590,13 @@ export const incidents = {
 };
 
 export const deliveries = {
-  list(limit = 100): NotificationDelivery[] {
-    return db.prepare("SELECT * FROM notification_deliveries ORDER BY sent_at DESC LIMIT ?").all(limit).map(rowToDelivery);
+  list(tenantId: string, limit = 100): NotificationDelivery[] {
+    return db.prepare(`
+      SELECT d.* FROM notification_deliveries d
+      JOIN monitors m ON m.id = d.monitor_id
+      WHERE m.tenant_id = ?
+      ORDER BY d.sent_at DESC LIMIT ?
+    `).all(tenantId, limit).map(rowToDelivery);
   },
   record(input: Omit<NotificationDelivery, "id" | "sentAt">) {
     const delivery = { ...input, id: id(), sentAt: nowIso() };
@@ -576,21 +621,26 @@ export const deliveries = {
 };
 
 export const subscriptions = {
-  list(): StatusSubscription[] {
-    return db.prepare("SELECT * FROM status_subscriptions ORDER BY created_at DESC").all().map(rowToSubscription);
+  list(tenantId: string): StatusSubscription[] {
+    return db.prepare("SELECT * FROM status_subscriptions WHERE tenant_id = ? ORDER BY created_at DESC").all(tenantId).map(rowToSubscription);
   },
-  create(tags: string[], type: "email" | "webhook", target: string, enabled = false): StatusSubscription {
-    const subscription = { id: id(), tags, type, target, enabled, createdAt: nowIso() };
-    db.prepare("INSERT INTO status_subscriptions VALUES (?, ?, ?, ?, ?, ?)").run(subscription.id, JSON.stringify(tags), type, target, enabled ? 1 : 0, subscription.createdAt);
+  create(input: { tenantId: string; pageSlug: string | null; tags: string[]; type: "email" | "webhook"; target: string; enabled?: boolean }): StatusSubscription {
+    const subscription: StatusSubscription = { id: id(), tenantId: input.tenantId, pageSlug: input.pageSlug, tags: input.tags, type: input.type, target: input.target, enabled: input.enabled ?? false, createdAt: nowIso() };
+    db.prepare(`
+      INSERT INTO status_subscriptions (id, tenant_id, page_slug, tags_json, type, target, enabled, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(subscription.id, subscription.tenantId, subscription.pageSlug, JSON.stringify(subscription.tags), subscription.type, subscription.target, subscription.enabled ? 1 : 0, subscription.createdAt);
     return subscription;
   },
+  // The confirmation link carries the random id and reaches only the subscriber.
   confirm(subscriptionId: string): StatusSubscription | null {
     db.prepare("UPDATE status_subscriptions SET enabled = 1 WHERE id = ?").run(subscriptionId);
     const row = db.prepare("SELECT * FROM status_subscriptions WHERE id = ?").get(subscriptionId);
     return row ? rowToSubscription(row) : null;
   },
-  delete(subscriptionId: string) {
-    db.prepare("DELETE FROM status_subscriptions WHERE id = ?").run(subscriptionId);
+  /** Deletes within one organization and reports whether a subscription was removed. */
+  delete(subscriptionId: string, tenantId: string): boolean {
+    return db.prepare("DELETE FROM status_subscriptions WHERE id = ? AND tenant_id = ?").run(subscriptionId, tenantId).changes > 0;
   }
 };
 
@@ -602,12 +652,18 @@ export const channels = {
     const row = tenantId ? db.prepare("SELECT * FROM notification_channels WHERE id = ? AND tenant_id = ?").get(channelId, tenantId) : db.prepare("SELECT * FROM notification_channels WHERE id = ?").get(channelId);
     return row ? rowToChannel(row) : null;
   },
-  upsert(channel: NotificationChannel) {
-    db.prepare(`
+  /**
+   * Creates the channel or updates it within its own organization. An id that
+   * belongs to a channel of another organization changes nothing; the result
+   * says whether the channel was written.
+   */
+  upsert(channel: NotificationChannel): boolean {
+    return db.prepare(`
       INSERT INTO notification_channels (id, tenant_id, name, type, enabled, config_json, created_at, updated_at)
       VALUES (@id, @tenantId, @name, @type, @enabled, @configJson, @createdAt, @updatedAt)
-      ON CONFLICT(id) DO UPDATE SET tenant_id=@tenantId, name=@name, type=@type, enabled=@enabled, config_json=@configJson, updated_at=@updatedAt
-    `).run({ ...channel, tenantId: channel.tenantId ?? DEFAULT_TENANT_ID, configJson: JSON.stringify(encryptConfigSecrets(channel.config ?? {})) });
+      ON CONFLICT(id) DO UPDATE SET name=@name, type=@type, enabled=@enabled, config_json=@configJson, updated_at=@updatedAt
+      WHERE notification_channels.tenant_id = excluded.tenant_id
+    `).run({ ...channel, tenantId: channel.tenantId ?? DEFAULT_TENANT_ID, configJson: JSON.stringify(encryptConfigSecrets(channel.config ?? {})) }).changes > 0;
   },
   delete(channelId: string, tenantId?: string) {
     if (tenantId) db.prepare("DELETE FROM notification_channels WHERE id = ? AND tenant_id = ?").run(channelId, tenantId);
@@ -634,8 +690,13 @@ export const alerts = {
       nowIso()
     );
   },
-  list(limit = 100) {
-    return db.prepare("SELECT * FROM alert_history ORDER BY sent_at DESC LIMIT ?").all(limit);
+  list(tenantId: string, limit = 100) {
+    return db.prepare(`
+      SELECT a.* FROM alert_history a
+      JOIN monitors m ON m.id = a.monitor_id
+      WHERE m.tenant_id = ?
+      ORDER BY a.sent_at DESC LIMIT ?
+    `).all(tenantId, limit);
   },
   prune(days: number) {
     db.prepare("DELETE FROM alert_history WHERE sent_at < ?").run(new Date(Date.now() - days * 86_400_000).toISOString());
@@ -701,15 +762,7 @@ export const appSettings = {
   },
   get<T>(key: string, fallback: T, tenantId?: string): T {
     const row = db.prepare("SELECT value_json FROM settings WHERE key = ?").get(settingKey(key, tenantId)) as { value_json?: string } | undefined;
-    if (!row?.value_json) return fallback;
-    try {
-      const parsed = JSON.parse(row.value_json);
-      const value = isPlainSettingsObject(parsed) ? decryptConfigSecrets(parsed) : parsed;
-      if (Array.isArray(fallback)) return (Array.isArray(value) ? value : fallback) as T;
-      return { ...fallback, ...value };
-    } catch {
-      return fallback;
-    }
+    return parseSetting(row?.value_json, fallback);
   },
   set<T>(key: string, value: T, tenantId?: string) {
     const stored = isPlainSettingsObject(value) ? encryptConfigSecrets(value as Record<string, unknown>) : value;
@@ -717,6 +770,29 @@ export const appSettings = {
       settingKey(key, tenantId),
       JSON.stringify(stored)
     );
+  },
+  delete(key: string, tenantId?: string) {
+    db.prepare("DELETE FROM settings WHERE key = ?").run(settingKey(key, tenantId));
+  },
+  /** One setting of every organization that has stored it, read in a single query. */
+  everyTenant<T>(key: string, fallback: T): Array<{ tenantId: string; value: T }> {
+    const rows = db.prepare("SELECT key, value_json FROM settings WHERE key = ? OR key LIKE ?").all(key, `tenant:%:${key}`) as Array<{ key: string; value_json?: string }>;
+    return rows.flatMap((row) => {
+      const tenantId = row.key === key ? DEFAULT_TENANT_ID : row.key.slice("tenant:".length, -(key.length + 1));
+      return tenantId ? [{ tenantId, value: parseSetting(row.value_json, fallback) }] : [];
+    });
+  }
+};
+
+const parseSetting = <T>(valueJson: string | undefined, fallback: T): T => {
+  if (!valueJson) return fallback;
+  try {
+    const parsed = JSON.parse(valueJson);
+    const value = isPlainSettingsObject(parsed) ? decryptConfigSecrets(parsed) : parsed;
+    if (Array.isArray(fallback)) return (Array.isArray(value) ? value : fallback) as T;
+    return { ...fallback, ...value };
+  } catch {
+    return fallback;
   }
 };
 

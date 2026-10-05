@@ -2,7 +2,7 @@ import { useState } from "react";
 import { api } from "../api/client";
 import { BrandMark } from "../components/BrandMark";
 
-export function Register({ inviteToken, onLogin, onBack }: { inviteToken?: string | null; onLogin: (result: any) => void; onBack: () => void }) {
+export function Register({ inviteToken, passwordMinLength, onLogin, onBack }: { inviteToken?: string | null; passwordMinLength?: number; onLogin: (result: any) => void; onBack: () => void }) {
   const [form, setForm] = useState({ email: "", password: "", confirm: "", organizationName: "" });
   const [error, setError] = useState("");
   const invited = Boolean(inviteToken);
@@ -38,8 +38,8 @@ export function Register({ inviteToken, onLogin, onBack }: { inviteToken?: strin
         </p>
         <label>Email<input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} required /></label>
         {!invited && <label>Organization<input value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} required /></label>}
-        <label>Password<input type="password" value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></label>
-        <label>Confirm password<input type="password" value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required /></label>
+        <label>Password<input type="password" autoComplete="new-password" minLength={passwordMinLength} value={form.password} onChange={(e) => setForm({ ...form, password: e.target.value })} required /></label>
+        <label>Confirm password<input type="password" autoComplete="new-password" minLength={passwordMinLength} value={form.confirm} onChange={(e) => setForm({ ...form, confirm: e.target.value })} required /></label>
         {error && <p className="error">{error}</p>}
         <button className="btn btn-primary" type="submit">{invited ? "Accept invite" : "Create organization"}</button>
         <button className="btn btn-outline-secondary" type="button" onClick={onBack}>Back to sign in</button>

@@ -9,9 +9,9 @@ import { requireTenantRole } from "../auth/auth.js";
 
 export const monitorRoutes = Router();
 
-monitorRoutes.get("/", (_req, res) => {
-  const latest = results.latestByMonitor();
-  res.json(monitors.list(_req.currentTenant!.id).map((monitor) => ({ ...publicMonitor(monitor), latestResult: latest[monitor.id] ?? null })));
+monitorRoutes.get("/", (req, res) => {
+  const latest = results.latestByMonitor(req.currentTenant!.id);
+  res.json(monitors.list(req.currentTenant!.id).map((monitor) => ({ ...publicMonitor(monitor), latestResult: latest[monitor.id] ?? null })));
 });
 
 monitorRoutes.post("/", requireTenantRole("owner", "admin", "member"), async (req, res) => {
@@ -110,7 +110,7 @@ monitorRoutes.post("/:id/check", requireTenantRole("owner", "admin", "member"), 
   incidents.sync(monitor, result);
   monitors.markChecked(monitor, result);
   await dispatchAlerts(monitor, result, channels.list(monitor.tenantId));
-  if (statusEvent) await dispatchStatusSubscriptions(monitor, result, statusEvent, subscriptions.list());
+  if (statusEvent) await dispatchStatusSubscriptions(monitor, result, statusEvent, subscriptions.list(monitor.tenantId));
   res.json(result);
 });
 

@@ -1,10 +1,10 @@
-import nodemailer from "nodemailer";
 import { env } from "../config/env.js";
 import type { CheckResult, Monitor, NotificationChannel, NotificationRoute, Severity, SmtpSettings, StatusSubscription, UserAlertSettings } from "../types.js";
 import { alerts, appSettings, deliveries, results as checkResults, userAlerts } from "../storage/repositories.js";
 import { alertFingerprint } from "../checks/status.js";
 import { isInMaintenance } from "../checks/maintenance.js";
-import { postNotification, type DeliveryRequest } from "./delivery.js";
+import { isPublished, subscriptionPagePath } from "../status/publication.js";
+import { mailTransport, postNotification, type DeliveryRequest } from "./delivery.js";
 
 export const dispatchAlerts = async (monitor: Monitor, result: CheckResult, configured: NotificationChannel[]) => {
   const settings = appSettings.alerting(monitor.tenantId);
@@ -24,19 +24,24 @@ export const dispatchAlerts = async (monitor: Monitor, result: CheckResult, conf
   await sendToChannels(monitor, result, configured);
 };
 
+// The sample monitor belongs to the channel's organization, so an email test uses that organization's SMTP settings.
 export const testChannel = async (channel: NotificationChannel) => {
-  await sendChannel(channel, { id: "test", name: "Test Monitor", host: "example.com", port: 443 } as Monitor, sampleResult());
+  await sendChannel(channel, { id: "test", tenantId: channel.tenantId, name: "Test Monitor", host: "example.com", port: 443 } as Monitor, sampleResult());
 };
 
+/* Subscribers hear about monitors of the organization whose page they
+   subscribed to, and only while a published status page of that organization
+   shows the monitor. */
 export const dispatchStatusSubscriptions = async (monitor: Monitor, result: CheckResult, event: "opened" | "resolved", configured: StatusSubscription[]) => {
   if (isInMaintenance(monitor, appSettings.maintenance(monitor.tenantId))) return;
-  const targets = configured.filter((subscription) => subscription.enabled && subscription.tags.every((tag) => monitor.tags.includes(tag)));
+  if (!isPublished(monitor)) return;
+  const targets = configured.filter((subscription) => subscription.enabled && subscription.tenantId === monitor.tenantId && subscription.tags.every((tag) => monitor.tags.includes(tag)));
   await Promise.allSettled(targets.map((subscription) => sendStatusSubscription(subscription, monitor, result, event)));
 };
 
 export const sendStatusSubscriptionOptIn = async (subscription: StatusSubscription) => {
   const confirmUrl = `${env.baseUrl}/public/subscriptions/${encodeURIComponent(subscription.id)}/confirm`;
-  const statusPage = `${env.baseUrl}/public/status/${encodeURIComponent(subscription.tags.join("+"))}.html`;
+  const statusPage = `${env.baseUrl}${subscriptionPagePath(subscription)}`;
   if (subscription.type === "webhook") {
     return postJson(subscription.target, {
       event: "subscription_opt_in",
@@ -46,15 +51,9 @@ export const sendStatusSubscriptionOptIn = async (subscription: StatusSubscripti
       tags: subscription.tags
     });
   }
-  const smtp = appSettings.smtp();
-  const transport = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    auth: smtp.username ? { user: smtp.username, pass: smtp.password } : undefined,
-    requireTLS: smtp.starttls
-  });
-  await transport.sendMail({
+  // The same SMTP settings that will carry the incident updates later.
+  const smtp = appSettings.smtp(subscription.tenantId);
+  await mailTransport(smtp).sendMail({
     from: smtp.from || "crt.watch@localhost",
     to: subscription.target,
     subject: "[crt.watch Status] Confirm your subscription",
@@ -98,18 +97,11 @@ const sendStatusSubscription = async (subscription: StatusSubscription, monitor:
   const payload = {
     ...buildPayload(monitor, result),
     event,
-    status_page: `${env.baseUrl}/public/status/${encodeURIComponent(subscription.tags.join("+"))}.html`
+    status_page: `${env.baseUrl}${subscriptionPagePath(subscription)}`
   };
   if (subscription.type === "webhook") return postJson(subscription.target, payload);
   const smtp = appSettings.smtp(monitor.tenantId);
-  const transport = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    auth: smtp.username ? { user: smtp.username, pass: smtp.password } : undefined,
-    requireTLS: smtp.starttls
-  });
-  await transport.sendMail({
+  await mailTransport(smtp).sendMail({
     from: smtp.from || "crt.watch@localhost",
     to: subscription.target,
     subject: `[crt.watch Status] ${event === "resolved" ? "Resolved" : "Incident"}: ${monitor.name}`,
@@ -224,14 +216,8 @@ const endpoint = (channel: NotificationChannel, fallbackParts?: string[]) => {
 const sendEmail = async (channel: NotificationChannel, monitor: Monitor, result: CheckResult, recipient = "") => {
   const globalSmtp = appSettings.smtp(monitor.tenantId);
   const smtp = mergeSmtp(globalSmtp, channel.config);
-  const transport = nodemailer.createTransport({
-    host: smtp.host,
-    port: smtp.port,
-    secure: smtp.secure,
-    auth: smtp.username ? { user: smtp.username, pass: smtp.password } : undefined,
-    requireTLS: smtp.starttls
-  });
-  await transport.sendMail({
+  // The SMTP host of the channel or the organization passes the same address check as webhooks.
+  await mailTransport(smtp).sendMail({
     from: String(channel.config.from ?? smtp.from ?? "crt.watch@localhost"),
     to: recipient || String(channel.config.to ?? channel.config.username ?? ""),
     subject: `[crt.watch] ${subjectFor(result.severity)}: ${monitor.name}`,

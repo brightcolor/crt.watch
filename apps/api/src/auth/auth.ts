@@ -88,7 +88,10 @@ export const resolveTenant = (req: Request, res: Response, next: NextFunction) =
 };
 
 export const requireTenantRole = (...roles: TenantRole[]) => (req: Request, res: Response, next: NextFunction) => {
-  if (!req.tenantRole || !roles.includes(req.tenantRole)) return res.status(403).json({ error: "Organization permission required." });
+  if (!req.tenantRole || !roles.includes(req.tenantRole)) {
+    const needed = roles.length > 1 ? `${roles.slice(0, -1).join(", ")} or ${roles.at(-1)}` : roles[0];
+    return res.status(403).json({ error: `This needs the ${needed} role in this organization, and your role is ${req.tenantRole ?? "none"}. Ask an owner of the organization for the role.` });
+  }
   next();
 };
 

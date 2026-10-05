@@ -5,6 +5,7 @@ import { createPlainApiToken, hashToken, requireAdmin, requireTenantRole } from 
 import { discoverMonitors } from "../checks/discovery.js";
 import { buildManualSslLabsResult, normalizeSslLabsHost, runManualSslLabsAssessment } from "../checks/sslLabsManual.js";
 import { apiTokens, appSettings, auditLogs, deliveries, incidents, monitors, results, tenants, users } from "../storage/repositories.js";
+import { statusPageConflict, statusPagesSchema } from "../status/publication.js";
 import { id } from "../utils/id.js";
 import { monitorInputSchema, monitorTypes } from "./monitorSchemas.js";
 import type { DiscoveredMonitor, Monitor } from "../types.js";
@@ -53,7 +54,15 @@ opsRoutes.post("/ssl-labs/trigger", requireTenantRole("owner", "admin", "member"
   }
 });
 opsRoutes.get("/settings/status-pages", (req, res) => res.json(appSettings.statusPages(req.currentTenant!.id)));
-opsRoutes.put("/settings/status-pages", requireTenantRole("owner", "admin"), (req, res) => saveSetting(req, res, "statusPages", statusPagesSchema));
+// A status page publishes monitors, and its slug is a public address that no other organization may hold.
+opsRoutes.put("/settings/status-pages", requireTenantRole("owner", "admin"), (req, res) => {
+  const parsed = statusPagesSchema.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid status pages. Check slug, title and labels of each page." });
+  const conflict = statusPageConflict(req.currentTenant!.id, parsed.data.pages);
+  if (conflict) return res.status(409).json({ error: conflict });
+  appSettings.set("statusPages", parsed.data, req.currentTenant!.id);
+  res.json(parsed.data);
+});
 opsRoutes.get("/settings/discovery", (req, res) => res.json(appSettings.discovery(req.currentTenant!.id)));
 opsRoutes.put("/settings/discovery", requireTenantRole("owner", "admin"), (req, res) => saveSetting(req, res, "discovery", discoverySchema));
 opsRoutes.get("/settings/backups", (req, res) => res.json(appSettings.backups(req.currentTenant!.id)));
@@ -137,7 +146,7 @@ opsRoutes.delete("/api-tokens/:id", requireAdmin, (req, res) => {
   res.status(204).end();
 });
 
-opsRoutes.get("/deliveries", (_req, res) => res.json(deliveries.list()));
+opsRoutes.get("/deliveries", (req, res) => res.json(deliveries.list(req.currentTenant!.id)));
 opsRoutes.get("/audit-log", requireTenantRole("owner", "admin"), (req, res) => {
   const entries = auditLogs.list(req.currentTenant!.id, Number(req.query.limit ?? 100));
   res.json(entries.map((entry) => ({ ...entry, actorEmail: entry.actorUserId ? (users.findById(entry.actorUserId)?.email ?? null) : null })));
@@ -149,20 +158,22 @@ opsRoutes.post("/incidents/:id/ack", (req, res) => {
     assignee: z.string().max(120).optional().nullable(),
     comment: z.string().trim().max(2000).optional()
   }).safeParse(req.body ?? {});
-  if (!parsed.success) return res.status(400).json({ error: "Invalid acknowledgement." });
+  if (!parsed.success) return res.status(400).json({ error: "Enter an assignee with at most 120 characters and a comment with at most 2000 characters." });
   if (adminMustComment(req) && !parsed.data.comment) return res.status(400).json({ error: "Admins must add a comment when acknowledging incidents." });
-  const incident = incidents.acknowledge(req.params.id, req.user!.email, parsed.data.assignee, parsed.data.comment);
-  if (!incident) return res.status(404).json({ error: "Incident not found." });
+  const incident = incidents.acknowledge(req.params.id, req.currentTenant!.id, req.user!.email, parsed.data.assignee, parsed.data.comment);
+  if (!incident) return res.status(404).json({ error: incidentNotFound });
   res.json(incident);
 });
 
 opsRoutes.post("/incidents/:id/notes", (req, res) => {
   const parsed = z.object({ text: z.string().trim().min(1).max(2000) }).safeParse(req.body);
-  if (!parsed.success) return res.status(400).json({ error: "Invalid note." });
-  const incident = incidents.addNote(req.params.id, req.user!.email, parsed.data.text);
-  if (!incident) return res.status(404).json({ error: "Incident not found." });
+  if (!parsed.success) return res.status(400).json({ error: "Enter a note with at most 2000 characters." });
+  const incident = incidents.addNote(req.params.id, req.currentTenant!.id, req.user!.email, parsed.data.text);
+  if (!incident) return res.status(404).json({ error: incidentNotFound });
   res.json(incident);
 });
+
+const incidentNotFound = "Incident not found in this organization. Reload the monitor; the incident may have been removed together with its monitor.";
 
 const saveSetting = (req: any, res: any, key: string, schema: z.ZodTypeAny) => {
   const parsed = schema.safeParse(req.body);
@@ -214,19 +225,6 @@ const sslLabsTriggerSchema = z.object({
   host: z.string().trim().max(253).optional(),
   startNewScan: z.boolean().default(true)
 }).refine((value) => value.monitorId || value.host, { message: "Monitor or host is required." });
-
-const statusPagesSchema = z.object({
-  pages: z.array(z.object({
-    id: z.string().default(() => id()),
-    slug: z.string().trim().min(1).max(80).regex(/^[a-z0-9-]+$/),
-    title: z.string().trim().min(1).max(120),
-    description: z.string().max(500).default(""),
-    logoUrl: z.string().max(1000).default(""),
-    tags: z.array(z.string().min(1).max(40)),
-    hideHostnames: z.boolean(),
-    enabled: z.boolean()
-  })).default([])
-});
 
 const discoverySchema = z.object({
   enabled: z.boolean(),

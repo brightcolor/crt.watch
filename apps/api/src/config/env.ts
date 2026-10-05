@@ -49,6 +49,52 @@ export const choiceSetting = <T extends string>(source: SettingSource, key: stri
 
 export const networkListSetting = (source: SettingSource, key: string) => parseNetworkList(source[key] ?? "", key);
 
+/* Which peers may name the client address in X-Forwarded-For. false ignores the
+   header, which is right for a container that clients reach directly. A list of
+   addresses and networks trusts exactly the proxies in it, and Express's names
+   loopback, linklocal and uniquelocal stand for their ranges. true and a number
+   trust that many hops whatever their address, which fits a container that
+   nothing but the proxy can reach. */
+export type TrustProxy = false | number | string[];
+
+const proxyRangeNames = ["loopback", "linklocal", "uniquelocal"];
+const maxProxyHops = 10;
+
+export const trustProxySetting = (source: SettingSource, key: string): TrustProxy => {
+  const raw = source[key]?.trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  if (["0", "false", "no", "off"].includes(lower)) return false;
+  if (["true", "yes", "on"].includes(lower)) return 1;
+  if (/^\d+$/.test(lower) && Number(lower) <= maxProxyHops) return Number(lower);
+  const entries = raw.split(/[\s,]+/).filter(Boolean);
+  const invalid = entries.find((entry) => {
+    if (proxyRangeNames.includes(entry.toLowerCase())) return false;
+    try {
+      parseNetworkList(entry, key);
+      return false;
+    } catch {
+      return true;
+    }
+  });
+  if (invalid !== undefined) {
+    throw new Error(`${key} must be false, true, a number of proxy hops from 1 to ${maxProxyHops}, or a list of proxy addresses and networks such as loopback, uniquelocal, 172.18.0.0/16 or 10.0.0.5, but "${invalid}" in "${raw}" is none of these. ${correction("false")}`);
+  }
+  return entries.map((entry) => (proxyRangeNames.includes(entry.toLowerCase()) ? entry.toLowerCase() : entry));
+};
+
+/* A secret such as a bearer token: at least minLength characters, and without
+   spaces, because it travels in a header. The value never appears in the
+   message. */
+export const secretSetting = (source: SettingSource, key: string, minLength: number, whenUnset: string) => {
+  const raw = source[key]?.trim();
+  if (!raw) return "";
+  if (raw.length < minLength || /\s/.test(raw)) {
+    throw new Error(`${key} must be at least ${minLength} characters long and contain no spaces, but the value set has ${raw.length} characters${/\s/.test(raw) ? " and contains spaces" : ""}. Generate one with "openssl rand -hex 32", or remove ${key} to ${whenUnset}.`);
+  }
+  return raw;
+};
+
 // Keywords may be written without their quotes, because quotes are awkward in
 // .env and Compose files: "self data: https:" is read as 'self' data: https:.
 const cspKeywords: Record<string, string> = { self: "'self'", "'self'": "'self'", none: "'none'", "'none'": "'none'" };
@@ -71,7 +117,8 @@ export const env = {
   baseUrl: process.env.BASE_URL ?? "http://localhost:8080",
   databasePath: process.env.DATABASE_PATH ?? path.resolve("data/crtwatch.sqlite"),
   sessionSecret: process.env.SESSION_SECRET ?? "dev-only-change-me",
-  trustProxy: boolFromEnv("TRUST_PROXY", true),
+  // Peers that may set the client address in X-Forwarded-For; off unless the operator names the proxy.
+  trustProxy: trustProxySetting(process.env, "TRUST_PROXY"),
   cookieSecure: boolFromEnv("COOKIE_SECURE", false),
   frontPageEnabled: boolFromEnv("FRONT_PAGE_ENABLED", true),
   publicRegistrationEnabled: boolFromEnv("PUBLIC_REGISTRATION_ENABLED", true),
@@ -99,5 +146,10 @@ export const env = {
   authRateLimitMaxAttempts: integerSetting(process.env, "AUTH_RATE_LIMIT_MAX_ATTEMPTS", 10, 1, 1000),
   // Content Security Policy on every response; report-only lets the browser log violations instead of blocking them.
   contentSecurityPolicy: choiceSetting(process.env, "CONTENT_SECURITY_POLICY", "enforce", ["enforce", "report-only"] as const),
-  contentSecurityPolicyImageSources: cspSourceListSetting(process.env, "CONTENT_SECURITY_POLICY_IMAGE_SOURCES", ["'self'", "data:", "https:"])
+  contentSecurityPolicyImageSources: cspSourceListSetting(process.env, "CONTENT_SECURITY_POLICY_IMAGE_SOURCES", ["'self'", "data:", "https:"]),
+  // /metrics: authenticated answers to METRICS_TOKEN, a session or an API token; public answers everyone.
+  metricsAccess: choiceSetting(process.env, "METRICS_ACCESS", "authenticated", ["authenticated", "public"] as const),
+  metricsToken: secretSetting(process.env, "METRICS_TOKEN", 32, "let only signed-in users and API tokens read /metrics"),
+  // Shortest password accepted for every account: setup, registration, user management and password changes.
+  passwordMinLength: integerSetting(process.env, "PASSWORD_MIN_LENGTH", 12, 8, 128)
 };

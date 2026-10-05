@@ -13,7 +13,7 @@ export function Applications({ monitors, onSelect }: { monitors: Monitor[]; onSe
 
   return (
     <section className="content">
-      <p className="page-intro">Labels group related checks into application rollups, status pages, and badges.</p>
+      <p className="page-intro">Labels group related checks into application rollups, status pages, and badges. The status and badge addresses answer once a status page with the same labels is published in Operations; until then they report that nothing is published there.</p>
       <div className="flow">
         {!groups.length && <EmptyState
           icon={<Boxes size={24} />}

@@ -93,6 +93,9 @@ function App() {
     frontPageEnabled: boot?.frontPageEnabled ?? true,
     publicRegistrationEnabled: boot?.publicRegistrationEnabled ?? true
   });
+  // The server's password rule; forms show it once /auth/config has answered, and the server checks it either way.
+  const [passwordMinLength, setPasswordMinLength] = useState<number | undefined>(undefined);
+  const [setupCodeCommand, setSetupCodeCommand] = useState<string | undefined>(undefined);
   const [inviteToken] = useState(() => new URLSearchParams(window.location.search).get("invite"));
   const [authMode, setAuthMode] = useState<"front" | "login" | "register">(() => {
     if (inviteToken) return "register";
@@ -123,6 +126,8 @@ function App() {
           frontPageEnabled: Boolean(status.frontPageEnabled),
           publicRegistrationEnabled: Boolean(status.publicRegistrationEnabled)
         });
+        if (typeof status.passwordMinLength === "number") setPasswordMinLength(status.passwordMinLength);
+        if (typeof status.setupCodeCommand === "string") setSetupCodeCommand(status.setupCodeCommand);
         setSetupRequired(status.setupRequired);
         if (status.setupRequired) {
           setAuthMode("login");
@@ -386,8 +391,8 @@ function App() {
   };
 
   if (!booted) return <BootScreen />;
-  if (!user && setupRequired) return <Login setupRequired registrationEnabled={false} onLogin={finishLogin} />;
-  if (!user && authMode === "register") return <Register inviteToken={inviteToken} onBack={() => showAuth("login")} onLogin={finishLogin} />;
+  if (!user && setupRequired) return <Login setupRequired registrationEnabled={false} passwordMinLength={passwordMinLength} setupCodeCommand={setupCodeCommand} onLogin={finishLogin} />;
+  if (!user && authMode === "register") return <Register inviteToken={inviteToken} passwordMinLength={passwordMinLength} onBack={() => showAuth("login")} onLogin={finishLogin} />;
   if (!user && publicConfig.frontPageEnabled && authMode === "front") {
     return <FrontPage setupRequired={setupRequired} registrationEnabled={publicConfig.publicRegistrationEnabled} onAuth={() => showAuth("login")} onRegister={() => showAuth("register")} />;
   }
@@ -463,6 +468,7 @@ function App() {
         <UsersPage
           users={users}
           currentUser={user}
+          passwordMinLength={passwordMinLength}
           platformSettings={platformSettings}
           onSavePlatformSettings={async (data: any) => { setPlatformSettings(await api.request("/platform-settings", { method: "PUT", body: JSON.stringify(data) })); await refresh(); }}
           onCreate={async (data: any) => { await api.request("/users", { method: "POST", body: JSON.stringify(data) }); await refresh(); }}
@@ -495,6 +501,7 @@ function App() {
         <Profile
           user={user}
           tenants={tenants}
+          passwordMinLength={passwordMinLength}
           onChangePassword={(data: any) => api.request("/auth/change-password", { method: "POST", body: JSON.stringify(data) })}
           onLogout={logout}
           onMfaChanged={async () => setUser((await api.request<any>("/auth/me")).user)}

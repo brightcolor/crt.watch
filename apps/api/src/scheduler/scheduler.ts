@@ -79,7 +79,7 @@ const runMonitor = async (monitor: ReturnType<typeof monitors.list>[number]) => 
     incidents.sync(monitor, result);
     monitors.markChecked(monitor, result);
     await dispatchAlerts(monitor, result, channels.list(monitor.tenantId));
-    if (statusEvent) await dispatchStatusSubscriptions(monitor, result, statusEvent, subscriptions.list());
+    if (statusEvent) await dispatchStatusSubscriptions(monitor, result, statusEvent, subscriptions.list(monitor.tenantId));
   } catch (error) {
     console.error(`Check failed for monitor ${monitor.id}:`, error instanceof Error ? error.message : error);
   }

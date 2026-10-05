@@ -23,6 +23,7 @@ export function Operations({ liveRefreshKey = 0 }: { liveRefreshKey?: number }) 
   const [tokenResult, setTokenResult] = useState("");
   const [route, setRoute] = useState({ name: "", tags: [] as string[], window: "daily 22:00-23:00" });
   const [page, setPage] = useState({ slug: "", title: "", description: "", logoUrl: "", tags: [] as string[], hideHostnames: false });
+  const [statusPageError, setStatusPageError] = useState("");
   const [tokenName, setTokenName] = useState("");
   const [tokenScope, setTokenScope] = useState("read");
 
@@ -50,10 +51,21 @@ export function Operations({ liveRefreshKey = 0 }: { liveRefreshKey?: number }) 
     void save("/settings/maintenance", { windows });
     setRoute({ name: "", tags: [], window: "daily 22:00-23:00" });
   };
-  const addStatusPage = () => {
-    const pages = [...statusPages.pages, { id: crypto.randomUUID(), ...page, enabled: true }];
-    void save("/settings/status-pages", { pages });
-    setPage({ slug: "", title: "", description: "", logoUrl: "", tags: [], hideHostnames: false });
+  // The server refuses a slug another organization already uses; the reason is shown at the form.
+  const saveStatusPages = async (pages: any[]) => {
+    setStatusPageError("");
+    try {
+      await save("/settings/status-pages", { pages });
+      return true;
+    } catch (error) {
+      setStatusPageError(error instanceof Error ? error.message : "The status pages could not be saved. Reload the page and try again.");
+      return false;
+    }
+  };
+  const addStatusPage = async () => {
+    if (await saveStatusPages([...statusPages.pages, { id: crypto.randomUUID(), ...page, enabled: true }])) {
+      setPage({ slug: "", title: "", description: "", logoUrl: "", tags: [], hideHostnames: false });
+    }
   };
   const createToken = async () => {
     const created = await api.request<any>("/api-tokens", { method: "POST", body: JSON.stringify({ name: tokenName, scopes: tokenScope === "write" ? ["read", "write"] : ["read"] }) });
@@ -142,14 +154,16 @@ export function Operations({ liveRefreshKey = 0 }: { liveRefreshKey?: number }) 
         </div>
         <div className="panel">
           <h3>Status pages</h3>
+          <p className="muted">A status page publishes the monitors that carry all of its labels, or every monitor when it has none. Only published monitors appear on public pages, badges and subscriptions.</p>
           <label>Slug<input value={page.slug} onChange={(e) => setPage((current) => ({ ...current, slug: e.target.value.toLowerCase() }))} placeholder="public-prod" /></label>
           <label>Title<input value={page.title} onChange={(e) => setPage((current) => ({ ...current, title: e.target.value }))} /></label>
           <label>Description<input value={page.description} onChange={(e) => setPage((current) => ({ ...current, description: e.target.value }))} /></label>
           <label>Logo URL<input value={page.logoUrl} onChange={(e) => setPage((current) => ({ ...current, logoUrl: e.target.value }))} /></label>
           <TagInput value={page.tags} onChange={(tags) => setPage((current) => ({ ...current, tags }))} />
           <label><input type="checkbox" checked={page.hideHostnames} onChange={(e) => setPage((current) => ({ ...current, hideHostnames: e.target.checked }))} /> Hide hostnames</label>
-          <button className="btn btn-primary" onClick={addStatusPage}>Add status page</button>
-          {statusPages.pages.map((item: any) => <Row key={item.id} title={item.title} detail={`/public/status/${item.slug}.html - ${item.tags.join(", ")}`} onDelete={() => save("/settings/status-pages", { pages: statusPages.pages.filter((entry: any) => entry.id !== item.id) })} />)}
+          {statusPageError && <p className="error">{statusPageError}</p>}
+          <button className="btn btn-primary" onClick={() => void addStatusPage()}>Add status page</button>
+          {statusPages.pages.map((item: any) => <Row key={item.id} title={item.title} detail={`/public/status/${item.slug}.html - ${item.tags.join(", ")}`} onDelete={() => void saveStatusPages(statusPages.pages.filter((entry: any) => entry.id !== item.id))} />)}
         </div>
         <div className="panel">
           <h3>Discovery job</h3>

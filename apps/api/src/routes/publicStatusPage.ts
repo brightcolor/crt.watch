@@ -1,15 +1,30 @@
 import type { Incident, MonitorStatus } from "../types.js";
 
-type PublicMonitor = {
+/* Host and port are left out when the page hides host names, so the JSON
+   address shows what the HTML page shows. */
+export type PublicMonitor = {
   id: string;
   name: string;
-  host: string;
-  port: number;
+  host?: string;
+  port?: number;
   status: MonitorStatus;
   checkedAt: string | null;
   daysRemaining: number | null;
   message: string;
 };
+
+/* What an incident shows in public: no acknowledgement, assignee or notes,
+   which are the organization's internal working state. */
+export type PublicIncident = Pick<Incident, "monitorId" | "status" | "severity" | "message" | "startedAt" | "resolvedAt">;
+
+export const publicIncident = (incident: Incident): PublicIncident => ({
+  monitorId: incident.monitorId,
+  status: incident.status,
+  severity: incident.severity,
+  message: incident.message,
+  startedAt: incident.startedAt,
+  resolvedAt: incident.resolvedAt ?? null
+});
 
 type PublicStatusView = {
   label: string;
@@ -21,7 +36,7 @@ type PublicStatusView = {
   counts: Record<string, number>;
   summary: string;
   monitors: PublicMonitor[];
-  incidents: Incident[];
+  incidents: PublicIncident[];
 };
 
 type RenderOptions = {
@@ -117,6 +132,31 @@ export const renderPublicStatusPage = (status: PublicStatusView, options: Render
 </html>`;
 };
 
+export const statusPageNotFoundMessage = "No status page is published at this address. Check the link, or ask the organization that shared it whether the page is still published.";
+
+/* The answer for an address that no organization has published. It reads the
+   same whether nothing exists there or something exists but is private. */
+export const renderStatusPageNotFound = () => `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="robots" content="noindex">
+  <title>Status page not found</title>
+  <style>${styles}</style>
+</head>
+<body>
+  <main class="page">
+    <section class="hero">
+      <div class="brand-line"><span class="mark">SR</span><span class="brand-name">crt.watch</span></div>
+      <p class="eyebrow">Public status</p>
+      <h1>Status page not found</h1>
+      <p class="lead">${escapeHtml(statusPageNotFoundMessage)}</p>
+    </section>
+  </main>
+</body>
+</html>`;
+
 const statCard = (label: string, value: number, status: MonitorStatus) => {
   const tone = toneFor(status);
   return `<article class="stat ${tone.className}"><span>${escapeHtml(label)}</span><strong>${value}</strong></article>`;
@@ -124,7 +164,7 @@ const statCard = (label: string, value: number, status: MonitorStatus) => {
 
 const monitorRow = (monitor: PublicMonitor, hideHostnames: boolean) => {
   const tone = toneFor(monitor.status);
-  const target = hideHostnames ? "" : `<span>${escapeHtml(monitor.host)}:${monitor.port}</span>`;
+  const target = hideHostnames || !monitor.host ? "" : `<span>${escapeHtml(monitor.host)}:${monitor.port ?? ""}</span>`;
   const days = monitor.daysRemaining === null ? "" : `<span>${monitor.daysRemaining} days remaining</span>`;
   return `<article class="monitor">
     <div class="status-badge ${tone.className}"><span class="dot"></span>${escapeHtml(tone.label)}</div>
@@ -136,7 +176,7 @@ const monitorRow = (monitor: PublicMonitor, hideHostnames: boolean) => {
   </article>`;
 };
 
-const incidentRow = (incident: Incident) => {
+const incidentRow = (incident: PublicIncident) => {
   const tone = toneFor(incident.status);
   const resolved = incident.resolvedAt ? `Resolved ${formatDate(incident.resolvedAt)}` : "Open";
   return `<article class="incident">
