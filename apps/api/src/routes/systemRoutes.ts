@@ -210,7 +210,14 @@ systemRoutes.put("/settings/ct-watch", requireTenantRole("owner", "admin"), (req
   appSettings.set("ctWatch", parsed.data, req.currentTenant!.id);
   res.json(parsed.data);
 });
-systemRoutes.post("/ct-watch/check", async (req, res) => res.json(await checkCtWatch(req.currentTenant!.id)));
+// Express 4 does not catch a rejected handler, so a failed query at crt.sh is answered here.
+systemRoutes.post("/ct-watch/check", async (req, res) => {
+  try {
+    res.json(await checkCtWatch(req.currentTenant!.id));
+  } catch {
+    res.status(502).json({ error: "crt.sh could not be reached, so the certificate transparency check did not run. Try again later; if it keeps failing, check that the crt.watch server can reach crt.sh." });
+  }
+});
 systemRoutes.post("/discover", async (req, res) => {
   const parsed = discoverSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid discovery request." });
