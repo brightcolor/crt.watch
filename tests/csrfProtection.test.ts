@@ -3,13 +3,13 @@ import { randomUUID } from "node:crypto";
 import bcrypt from "bcryptjs";
 import express from "express";
 import { afterAll, describe, expect, it } from "vitest";
-import { attachSession, createPlainApiToken, hashToken } from "../apps/api/src/auth/auth.js";
-import { configurePassport } from "../apps/api/src/auth/passport.js";
+import { attachSession } from "../apps/api/src/auth/auth.js";
+import { configurePassport, createUserSession } from "../apps/api/src/auth/passport.js";
 import { apiRoutes } from "../apps/api/src/routes/index.js";
 import { csrfTokensEqual, jsonRequired, missingCsrfToken } from "../apps/api/src/security/csrf.js";
 import { migrate } from "../apps/api/src/storage/db.js";
-import { apiTokens, users } from "../apps/api/src/storage/repositories.js";
-import { organization } from "./support/fixtures.js";
+import { tenants, users } from "../apps/api/src/storage/repositories.js";
+import { account, organization } from "./support/fixtures.js";
 import { readCookies, serve } from "./support/http.js";
 
 /* Changing requests of the API: with the session cookie they carry the
@@ -69,9 +69,12 @@ describe("requests with the session cookie", () => {
 
 describe("requests with an API token", () => {
   it("need no CSRF token", async () => {
-    const plain = createPlainApiToken();
-    apiTokens.create("ci", hashToken(plain), ["read", "write"], alpha.owner.id);
-    const created = await send("POST", "/api/tenants", { authorization: `Bearer ${plain}`, "content-type": "application/json" }, JSON.stringify({ name: "From a script" }));
+    // A platform administrator issues the token through the API, as on the Operations page.
+    const admin = account("tokens", "super_admin");
+    tenants.addMember(alpha.tenant.id, admin.id, "owner");
+    const issued = await call("POST", "/api/api-tokens", { name: "ci", scopes: ["read", "write"] }, { session: createUserSession(admin.id), tenantId: alpha.tenant.id });
+    expect(issued.status).toBe(201);
+    const created = await send("POST", "/api/tenants", { authorization: `Bearer ${issued.json().token}`, "content-type": "application/json" }, JSON.stringify({ name: "From a script" }));
     expect(created.status).toBe(201);
   });
 });
