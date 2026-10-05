@@ -41,6 +41,13 @@ export const backupPath = (name: string) => {
   return path.join(backupDir, name);
 };
 
+/** The path of an existing backup file, or null for an unknown or malformed name. */
+export const findBackupPath = (name: string) => {
+  if (!backupName.test(name)) return null;
+  const target = path.join(backupDir, name);
+  return fs.existsSync(target) ? target : null;
+};
+
 export const deleteBackup = (name: string) => {
   const target = backupPath(name);
   if (fs.existsSync(target)) fs.unlinkSync(target);

@@ -152,7 +152,7 @@ const incidentRow = (incident: Incident) => {
 const notice = (state?: RenderOptions["subscriptionState"]) => {
   if (state === "pending") return `<section class="notice">Confirmation sent. The subscription is inactive until the opt-in link is confirmed.</section>`;
   if (state === "confirmed") return `<section class="notice success">Subscription confirmed. Incident updates are now active.</section>`;
-  if (state === "failed") return `<section class="notice error">The opt-in message could not be sent. Check the target and try again.</section>`;
+  if (state === "failed") return `<section class="notice error">The opt-in message could not be sent. Check the email address, or for a webhook that the URL starts with https:// or http:// and is reachable from the internet, then try again.</section>`;
   return "";
 };
 

@@ -8,7 +8,7 @@ import { classifyResult } from "./status.js";
 import { assertPublicResolution } from "./validation.js";
 import { prepareStartTls } from "./starttls.js";
 import { gradeTls } from "./tlsGrade.js";
-import { checkTlsLogin, tlsLoginEnabled, tlsLoginSuccessMessage } from "./tlsLogin.js";
+import { checkTlsLogin, tlsLoginEnabled, tlsLoginProtocol, tlsLoginSuccessMessage } from "./tlsLogin.js";
 import { assessTlsSecurity, probeSupportedTlsVersions } from "./tlsSecurity.js";
 
 export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings): Promise<CheckResult> => {
@@ -25,9 +25,11 @@ export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string
     const validFrom = x509 ? new Date(x509.validFrom) : cert.valid_from ? new Date(cert.valid_from) : undefined;
     const validUntil = x509 ? new Date(x509.validTo) : cert.valid_to ? new Date(cert.valid_to) : undefined;
     const fingerprint = x509?.fingerprint256.replaceAll(":", "").toLowerCase() ?? cert.fingerprint256?.replaceAll(":", "").toLowerCase();
-    const loginProblem = await getTlsLoginProblem(connection.socket, monitor);
     const selfSigned = Boolean(x509 && x509.subject === x509.issuer);
     const hostnameMatch = matchHostname(monitor.sniHost || monitor.host, commonName, subjectAltNames);
+    const loginProblem = tlsLoginAllowed(monitor, { authorized: connection.authorized, hostnameMatch, selfSigned })
+      ? await getTlsLoginProblem(connection.socket, monitor)
+      : tlsLoginEnabled(monitor) ? skippedTlsLoginProblem(monitor) : null;
     const chain = buildChain(cert);
     const tlsVersion = connection.socket.getProtocol();
     const cipherSuite = connection.socket.getCipher()?.name;
@@ -88,6 +90,9 @@ const openTlsConnection = (monitor: Monitor) =>
   new Promise<{ socket: tls.TLSSocket; authorized: boolean }>(async (resolve, reject) => {
     const timeoutMs = monitor.timeoutSeconds * 1000;
     const servername = monitor.sniEnabled ? monitor.sniHost || monitor.host : undefined;
+    // The handshake must succeed for expired, self-signed or mismatched certificates,
+    // because reporting them is the point of the check. socket.authorized carries the
+    // verdict; credentials are only sent when tlsLoginAllowed accepts it.
     const options = { host: monitor.host, port: monitor.port, servername, rejectUnauthorized: false, timeout: timeoutMs };
     let rawSocket: import("node:net").Socket | undefined;
     try {
@@ -183,6 +188,25 @@ const getTlsLoginProblem = async (socket: tls.TLSSocket, monitor: Monitor) => {
     return error instanceof Error ? error.message : String(error);
   }
 };
+
+/* Service credentials only travel over a connection whose certificate this
+   monitor accepts: a chain the system trusts for the host name, or a
+   certificate the operator accepted for this monitor by switching off chain
+   validation or allowing self-signed certificates, and then only for the
+   right host name. Anyone in the middle can present some certificate; without
+   this check they would receive the password. */
+export const tlsLoginAllowed = (
+  monitor: Pick<Monitor, "validateCertificate" | "allowSelfSigned">,
+  certificate: { authorized: boolean; hostnameMatch: boolean; selfSigned: boolean }
+) => {
+  if (certificate.authorized) return true;
+  if (!certificate.hostnameMatch) return false;
+  if (!monitor.validateCertificate) return true;
+  return certificate.selfSigned && monitor.allowSelfSigned;
+};
+
+const skippedTlsLoginProblem = (monitor: Monitor) =>
+  `${tlsLoginProtocol(monitor.type)?.toUpperCase() ?? "Service"} login was not attempted: the certificate is not trusted for ${monitor.sniHost || monitor.host}, so the credentials were not sent. Fix the certificate, or allow it for this monitor (self-signed certificates or no chain validation) if you trust this server.`;
 
 const certificateKeyInfo = (x509: X509Certificate | null) => {
   const publicKey = x509?.publicKey;

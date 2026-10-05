@@ -3,6 +3,13 @@ import { env } from "../config/env.js";
 
 export const randomToken = (bytes = 32) => randomBytes(bytes).toString("hex");
 
+/**
+ * The token of an "Authorization: Bearer <token>" header. Whitespace and token
+ * characters are disjoint in the pattern, so it matches in linear time however
+ * long the header is; `.+` after `\s+` backtracked quadratically on runs of spaces.
+ */
+export const bearerToken = (header: string | undefined) => header?.match(/^Bearer\s+(\S+)$/i)?.[1];
+
 const MFA_CHALLENGE_TTL_MS = 5 * 60 * 1000;
 
 export const createMfaChallenge = (userId: string) => {

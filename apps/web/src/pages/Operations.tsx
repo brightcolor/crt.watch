@@ -34,7 +34,8 @@ export function Operations({ liveRefreshKey = 0 }: { liveRefreshKey?: number }) 
       api.request<any>("/settings/status-pages"),
       api.request<any>("/settings/discovery"),
       api.request<any>("/settings/backups"),
-      api.request<any[]>("/backups"),
+      // Backup files and API tokens belong to platform administrators; others see empty lists.
+      api.request<any[]>("/backups").catch(() => []),
       api.request<any[]>("/api-tokens").catch(() => []),
       api.request<any[]>("/deliveries"),
       api.request<any[]>("/audit-log").catch(() => [])

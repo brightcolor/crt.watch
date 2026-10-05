@@ -23,11 +23,21 @@ import { APP_PREFIX, parseRoute, pathForPage, pathForView } from "./utils/routes
 import "./styles/app.css";
 
 /* When the server rendered the front page, it inlines the same configuration
-   it rendered with. Starting from it means the client's first render matches
-   the markup already on the page, so React hydrates it instead of throwing it
-   away and rebuilding after a round trip. */
+   it rendered with, as a JSON data block that the Content Security Policy lets
+   through. Starting from it means the client's first render matches the markup
+   already on the page, so React hydrates it instead of throwing it away and
+   rebuilding after a round trip. */
 type BootConfig = { setupRequired: boolean; frontPageEnabled: boolean; publicRegistrationEnabled: boolean };
-const boot: BootConfig | null = (window as any).__CRTWATCH_BOOT__ ?? null;
+const readBootConfig = (): BootConfig | null => {
+  const text = document.getElementById("crtwatch-boot")?.textContent;
+  if (!text) return null;
+  try {
+    return JSON.parse(text) as BootConfig;
+  } catch {
+    return null;
+  }
+};
+const boot = readBootConfig();
 
 const initialThemeMode = (() => {
   const stored = localStorage.getItem("themeMode") ?? localStorage.getItem("theme");

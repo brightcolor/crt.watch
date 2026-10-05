@@ -96,6 +96,7 @@ This stack keeps the application easy to self-host while still supporting real T
 - Availability reports with check counts, incident counts, availability percentage, and MTTR
 - Scheduled SQLite database backups with UI download and retention controls
 - Passport-based local user login with bcrypt password hashes, secure sessions, CSRF token header, first-run admin setup, organization self-registration, and optional GitHub OAuth strategy configuration
+- Hardened defaults: a Content Security Policy on every page, rate limits for requests and for failed sign-in and two-factor attempts, webhook notifications restricted to public addresses, and a container that runs as an unprivileged user
 - Optional TOTP-based two-factor authentication per user, set up from the Profile page with one-time backup codes and enforced as a second login step
 - Audit log for organization and team management actions, viewable by owners and admins on the Operations page
 - Admin-only user management with visible validation for password length and duplicate email addresses
@@ -166,13 +167,20 @@ SESSION_SECRET=use-a-long-random-secret
 BASE_URL=http://localhost:8080
 ```
 
-3. Start crt.watch:
+3. Create the data directory for the container user. The image runs as the unprivileged user `node` (uid 1000, gid 1000), which needs to own `DATA_DIR`:
+
+```bash
+mkdir -p data
+sudo chown 1000:1000 data
+```
+
+4. Start crt.watch:
 
 ```bash
 docker compose up -d
 ```
 
-4. Open:
+5. Open:
 
 ```text
 http://localhost:8080
@@ -233,6 +241,8 @@ Routes can match labels, severity, and provider targets. Each route can also def
 Users can configure personal alert preferences for non-critical events in Settings. Personal preferences use the organization's verified notification providers but can set the user's own recipient target, such as an email address, chat ID, or room ID. Critical alerts intentionally ignore personal preferences and always follow the organization admin-defined monitor recipients and notification routes.
 
 Webhook payloads include monitor ID, monitor name, host, port, status, severity, message, days remaining, validity dates, issuer, SHA256 fingerprint, local TLS grade, optional SSL Labs grade, resolved addresses, DNS resolver mismatches, check time, and the monitor URL.
+
+Webhook and chat notifications, including the opt-in for status page webhook subscriptions, go to public addresses only. crt.watch checks the address each connection actually uses, after DNS resolution and again for every redirect, and refuses loopback, private, link-local (including the cloud metadata endpoint `169.254.169.254`), carrier-grade NAT, multicast and reserved ranges. To deliver to a service in your own network, such as Gotify, ntfy, Mattermost or Matrix on a LAN address, list its address or network in `NOTIFICATION_ALLOWED_NETWORKS`, or allow all internal targets with `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` on an instance where every user is trusted. See [Security Settings](#security-settings).
 
 ## REST API
 
@@ -397,13 +407,32 @@ server {
 }
 ```
 
+The rate limits count requests per client address. With `TRUST_PROXY=true`, crt.watch takes that address from the `X-Forwarded-For` header the proxy sets. When the container is reachable directly, without a proxy in front, set `TRUST_PROXY=false`, so clients cannot pick their own address through that header.
+
+## Security Settings
+
+These environment variables control the protections added in the security hardening. Every value is checked when crt.watch starts; an invalid value stops the start with a message that names the variable, the accepted values and the default.
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `ALLOW_PRIVATE_NOTIFICATION_TARGETS` | `false` | `true` lets webhook and chat notifications reach loopback, private and link-local addresses. Use it only where every user who can configure channels is trusted. |
+| `NOTIFICATION_ALLOWED_NETWORKS` | empty | Internal addresses or networks that notifications may reach even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
+| `NOTIFICATION_MAX_REDIRECTS` | `3` | Redirects a notification request follows (0 to 10). Every redirect target is checked like the original URL. |
+| `NOTIFICATION_TIMEOUT_SECONDS` | `10` | Time a notification request may take including redirects (1 to 120). |
+| `RATE_LIMIT_WINDOW_SECONDS` | `60` | Window of the general request limit (1 to 3600). |
+| `RATE_LIMIT_MAX_REQUESTS` | `1200` | Requests per client address and window (0 to 100000). `0` switches the general limit off, for example when the reverse proxy already limits. |
+| `AUTH_RATE_LIMIT_WINDOW_MINUTES` | `15` | Window for failed sign-in, registration, setup and two-factor attempts (1 to 1440). |
+| `AUTH_RATE_LIMIT_MAX_ATTEMPTS` | `10` | Failed attempts per client address and window (1 to 1000). Two-factor codes are also counted per account. Successful requests are not counted. |
+| `CONTENT_SECURITY_POLICY` | `enforce` | `report-only` lets the browser report policy violations in its console instead of blocking them, for diagnosis. |
+| `CONTENT_SECURITY_POLICY_IMAGE_SOURCES` | `self data: https:` | Allowed image sources, separated by spaces. Status page logos load from here; add `http:` or a single host such as `https://logos.example.com` as needed. |
+
 ## Backups
 
 The Import page includes a backup and restore UI for portable JSON exports of monitor definitions, provider definitions, notification routes, CT-watch settings, and non-secret settings. Secrets are masked in this export by design and must be re-entered after restore.
 
 SQLite data is stored in the host bind mount configured by `DATA_DIR` and mounted into the container at `/data`. The default is `./data`, so manual installs store the database under the repository checkout. For a full secret-bearing backup, back up `crtwatch.sqlite` and its WAL files while the container is stopped, or use a SQLite online backup command from a maintenance shell.
 
-The Operations page can also create and retain full SQLite backup files inside `/data/backups`. These backups can be downloaded from the UI and are controlled by a keep-count retention setting.
+The Operations page can also create and retain full SQLite backup files inside `/data/backups`. These backups can be downloaded from the UI and are controlled by a keep-count retention setting. Each file holds the whole database with every organization, so listing, creating, downloading and deleting backup files is reserved for platform administrators.
 
 Independently of those tenant-configured backups, crt.watch always writes an automatic safety-net backup (`crtwatch-auto-*.sqlite` in `/data/backups`). It is controlled by environment variables instead of database-stored settings, so it keeps working even if the database is lost or replaced: `AUTO_BACKUP_ENABLED` (default `true`), `AUTO_BACKUP_INTERVAL_HOURS` (default `24`), and `AUTO_BACKUP_KEEP` (default `14`). Automatic backups appear in the Operations backup list like any other backup.
 
@@ -416,11 +445,27 @@ docker compose up -d
 
 The schema migration currently creates missing tables only. Back up the database before upgrading.
 
+### Upgrading to the unprivileged container
+
+The image runs crt.watch as the unprivileged user `node` (uid 1000, gid 1000). Data written by older images belongs to root, so the data directory has to be handed over once before the new image starts. This also applies when Watchtower updates the container:
+
+```bash
+cd /opt/crt.watch
+sudo chown -R 1000:1000 data
+docker compose pull
+docker compose up -d
+```
+
+Use the directory configured as `DATA_DIR` if it differs from `./data`. Running the quickstart script again does the same: it changes the owner of `data` and pulls the new image. If the directory is not writable, crt.watch stops at start with a message that names the directory and the command.
+
 ## Troubleshooting
 
 - Login fails on a fresh install: open the setup screen and create the first admin user. For an existing install, reset the password in the SQLite database or recreate the bind-mounted data directory if no data must be kept.
 - Creating a user fails: make sure the current account has the Admin role, the email address is not already used, and the password has at least 12 characters.
 - Checks fail for private hosts: set `ALLOW_PRIVATE_TARGETS=true` if the instance is intentionally allowed to monitor internal networks.
+- Notifications to a service on the local network fail with "is a private, loopback or link-local address": add the service's address to `NOTIFICATION_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` if every user who can configure channels is trusted.
+- The container stops with "cannot write to its data directory": hand the data directory to uid 1000 as described in [Upgrading to the unprivileged container](#upgrading-to-the-unprivileged-container).
+- Sign-in answers "Too many failed attempts": wait for the time the message names, or adjust `AUTH_RATE_LIMIT_MAX_ATTEMPTS` and `AUTH_RATE_LIMIT_WINDOW_MINUTES`. Behind a reverse proxy, check that `TRUST_PROXY=true` is set, so each visitor is counted by their own address.
 - Cookies fail behind HTTPS: set `COOKIE_SECURE=true` and ensure `X-Forwarded-Proto` is passed by the proxy.
 - STARTTLS fails: verify the service advertises STARTTLS and that firewalls allow the configured port.
 - Stored secrets cannot be read after changing `SESSION_SECRET`: restore the previous secret or re-enter affected monitor, SMTP, and notification provider passwords.

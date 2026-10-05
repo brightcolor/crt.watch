@@ -4,6 +4,7 @@ import type { CheckResult, Monitor, NotificationChannel, NotificationRoute, Seve
 import { alerts, appSettings, deliveries, results as checkResults, userAlerts } from "../storage/repositories.js";
 import { alertFingerprint } from "../checks/status.js";
 import { isInMaintenance } from "../checks/maintenance.js";
+import { postNotification, type DeliveryRequest } from "./delivery.js";
 
 export const dispatchAlerts = async (monitor: Monitor, result: CheckResult, configured: NotificationChannel[]) => {
   const settings = appSettings.alerting(monitor.tenantId);
@@ -217,7 +218,7 @@ const endpoint = (channel: NotificationChannel, fallbackParts?: string[]) => {
   const url = String(channel.config.url ?? "");
   if (url) return url;
   if (fallbackParts) return fallbackParts.join(".");
-  throw new Error("Notification URL is required.");
+  throw new Error(`Notification channel${channel.name ? ` "${channel.name}"` : ""} has no URL. Enter the endpoint URL in the channel settings.`);
 };
 
 const sendEmail = async (channel: NotificationChannel, monitor: Monitor, result: CheckResult, recipient = "") => {
@@ -280,14 +281,16 @@ const sampleResult = (): CheckResult => ({
   rawError: null
 });
 
-const postJson = async (url: string, payload: unknown, headers: Record<string, string> = {}) => {
-  const response = await fetch(url, { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(payload) });
-  if (!response.ok) throw new Error(`Notification endpoint returned ${response.status}.`);
-};
+const postJson = (url: string, payload: unknown, headers: Record<string, string> = {}) =>
+  deliver({ url, headers, body: JSON.stringify(payload), contentType: "application/json" });
 
-const postForm = async (url: string, values: Record<string, string>) => {
-  const response = await fetch(url, { method: "POST", body: new URLSearchParams(values) });
-  if (!response.ok) throw new Error(`Notification endpoint returned ${response.status}.`);
+const postForm = (url: string, values: Record<string, string>) =>
+  deliver({ url, body: new URLSearchParams(values).toString(), contentType: "application/x-www-form-urlencoded;charset=UTF-8" });
+
+// postNotification refuses targets outside the operator's network policy; see delivery.ts.
+const deliver = async (request: DeliveryRequest) => {
+  const { status, host } = await postNotification(request);
+  if (status < 200 || status > 299) throw new Error(`Notification endpoint ${host} answered with HTTP ${status}. Check the URL and the credentials of this channel.`);
 };
 
 const mergeSmtp = (globalSmtp: SmtpSettings, config: Record<string, unknown>): SmtpSettings => ({

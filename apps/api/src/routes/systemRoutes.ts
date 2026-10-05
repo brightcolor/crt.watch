@@ -6,6 +6,7 @@ import { nowIso } from "../utils/time.js";
 import { env } from "../config/env.js";
 import { alerts, appSettings, auditLogs, channels, incidents, monitors, results, subscriptions, teamMemberships, teams, tenantInvites, tenants, userAlerts, users } from "../storage/repositories.js";
 import { testChannel } from "../notifications/service.js";
+import { NotificationTargetError } from "../notifications/delivery.js";
 import { createImpersonationSession, requireSuperAdmin, requireTenantRole, setSessionCookie } from "../auth/auth.js";
 import { discoverMonitors } from "../checks/discovery.js";
 import rootPackage from "../../../../package.json" with { type: "json" };
@@ -270,8 +271,14 @@ systemRoutes.delete("/notification-channels/:id", requireTenantRole("owner", "ad
 systemRoutes.post("/notification-channels/test", async (req, res) => {
   const channel = req.body.id ? channels.get(String(req.body.id), req.currentTenant!.id) : { ...req.body, tenantId: req.currentTenant!.id };
   if (!channel) return res.status(404).json({ error: "Notification channel not found." });
-  await testChannel(channel);
-  res.json({ ok: true });
+  // Express 4 does not catch a rejected handler, so a failed test must be answered here.
+  try {
+    await testChannel(channel);
+    res.json({ ok: true });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "The test notification could not be delivered. Check the channel settings and try again.";
+    res.status(error instanceof NotificationTargetError ? 400 : 502).json({ error: message });
+  }
 });
 
 systemRoutes.get("/platform-settings", requireSuperAdmin, (_req, res) => {

@@ -1,6 +1,7 @@
 import { Router } from "express";
 import { appSettings, incidents, monitors, results, subscriptions } from "../storage/repositories.js";
 import { sendStatusSubscriptionOptIn } from "../notifications/service.js";
+import { NotificationTargetError } from "../notifications/delivery.js";
 import { renderPublicStatusPage } from "./publicStatusPage.js";
 import { badgeLabelFromQuery, renderStatusBadge } from "./publicBadge.js";
 import type { MonitorStatus } from "../types.js";
@@ -37,7 +38,7 @@ publicRoutes.post("/status/:tags/subscribe", async (req, res) => {
   const tags = page?.tags ?? parseTags(req.params.tags);
   const type = req.body?.type === "webhook" ? "webhook" : "email";
   const target = String(req.body?.target ?? "").trim();
-  if (!target || target.length > 2000) return res.status(400).json({ error: "Valid target is required." });
+  if (!target || target.length > 2000) return res.status(400).json({ error: "Enter an email address or a webhook URL with at most 2000 characters." });
   const subscription = subscriptions.create(tags, type, target, false);
   try {
     await sendStatusSubscriptionOptIn(subscription);
@@ -46,7 +47,8 @@ publicRoutes.post("/status/:tags/subscribe", async (req, res) => {
   } catch (error) {
     subscriptions.delete(subscription.id);
     if (req.accepts("html") && !req.is("application/json")) return res.redirect(303, `/public/status/${encodeURIComponent(rawTags(req.params.tags))}.html?subscription=failed`);
-    return res.status(502).json({ error: error instanceof Error ? error.message : "Opt-in delivery failed." });
+    const message = error instanceof Error ? error.message : "The opt-in message could not be sent. Check the target and try again.";
+    return res.status(error instanceof NotificationTargetError ? 400 : 502).json({ error: message });
   }
 });
 
