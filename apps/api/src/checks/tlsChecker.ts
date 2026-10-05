@@ -1,3 +1,4 @@
+import type net from "node:net";
 import tls from "node:tls";
 import { X509Certificate } from "node:crypto";
 import type { PeerCertificate } from "node:tls";
@@ -89,16 +90,23 @@ export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string
 };
 
 const openTlsConnection = async (monitor: Monitor, limits: CheckLimits) => {
-  const timeoutMs = monitor.timeoutSeconds * 1000;
-  const servername = monitor.sniEnabled ? monitor.sniHost || monitor.host : undefined;
-  // The handshake must succeed for expired, self-signed or mismatched certificates,
-  // because reporting them is the point of the check. socket.authorized carries the
-  // verdict; credentials are only sent when tlsLoginAllowed accepts it.
-  const options = { host: monitor.host, port: monitor.port, servername, rejectUnauthorized: false, timeout: timeoutMs };
   const rawSocket = monitor.type.endsWith("_starttls")
-    ? (await prepareStartTls(monitor.host, monitor.port, monitor.type.split("_")[0] as StartTlsMode, timeoutMs, limits)).socket
+    ? (await prepareStartTls(monitor.host, monitor.port, monitor.type.split("_")[0] as StartTlsMode, monitor.timeoutSeconds * 1000, limits)).socket
     : undefined;
-  return new Promise<{ socket: tls.TLSSocket; authorized: boolean }>((resolve, reject) => {
+  return tlsHandshake(monitor, limits, rawSocket);
+};
+
+/* The handshake on the socket after STARTTLS, or on a connection of its own.
+   It ends at the monitor's timeout without an answer and at the deadline of
+   the check. */
+const tlsHandshake = (monitor: Monitor, limits: CheckLimits, rawSocket?: net.Socket) =>
+  new Promise<{ socket: tls.TLSSocket; authorized: boolean }>((resolve, reject) => {
+    const timeoutMs = monitor.timeoutSeconds * 1000;
+    const servername = monitor.sniEnabled ? monitor.sniHost || monitor.host : undefined;
+    // The handshake must succeed for expired, self-signed or mismatched certificates,
+    // because reporting them is the point of the check. socket.authorized carries the
+    // verdict; credentials are only sent when tlsLoginAllowed accepts it.
+    const options = { host: monitor.host, port: monitor.port, servername, rejectUnauthorized: false, timeout: timeoutMs };
     let socket: tls.TLSSocket;
     try {
       socket = rawSocket ? tls.connect({ ...options, socket: rawSocket }) : tls.connect({ ...options, ...monitorConnectOptions() });
@@ -130,7 +138,6 @@ const openTlsConnection = async (monitor: Monitor, limits: CheckLimits) => {
     socket.on("error", fail);
     socket.on("timeout", onTimeout);
   });
-};
 
 const makeResult = (
   monitor: Monitor,
