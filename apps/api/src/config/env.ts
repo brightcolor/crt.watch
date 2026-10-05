@@ -127,6 +127,17 @@ export const env = {
   monitorAllowedNetworks: networkListSetting(process.env, "MONITOR_ALLOWED_NETWORKS"),
   monitorMaxRedirects: integerSetting(process.env, "MONITOR_MAX_REDIRECTS", 20, 0, 20),
   monitorHttpBodyLimitKb: integerSetting(process.env, "MONITOR_HTTP_BODY_LIMIT_KB", 1024, 1, 65_536),
+  // Conversations of a check with its service: bytes read per STARTTLS negotiation, banner or login,
+  // and the time all connections of one check may stay open together; see checks/conversation.ts.
+  monitorProtocolReadLimitKb: integerSetting(process.env, "MONITOR_PROTOCOL_READ_LIMIT_KB", 64, 1, 1024),
+  monitorCheckDeadlineSeconds: integerSetting(process.env, "MONITOR_CHECK_DEADLINE_SECONDS", 60, 1, 600),
+  // Time each probe of the intensive TLS assessment waits for an answer; a shorter monitor timeout applies.
+  monitorTlsProbeTimeoutSeconds: integerSetting(process.env, "MONITOR_TLS_PROBE_TIMEOUT_SECONDS", 3, 1, 120),
+  // DNS details: nameservers of a zone whose addresses are resolved, and how many of their addresses are queried.
+  monitorDnsNameserverLimit: integerSetting(process.env, "MONITOR_DNS_NAMESERVER_LIMIT", 4, 1, 13),
+  monitorDnsNameserverAddressLimit: integerSetting(process.env, "MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT", 6, 1, 26),
+  // How often the scheduler looks for due checks, discovery runs and backups.
+  schedulerIntervalSeconds: integerSetting(process.env, "SCHEDULER_INTERVAL_SECONDS", 30, 5, 3600),
   checkConcurrency: numberFromEnv("CHECK_CONCURRENCY", 4),
   autoBackupIntervalHours: numberFromEnv("AUTO_BACKUP_INTERVAL_HOURS", 24),
   autoBackupKeep: numberFromEnv("AUTO_BACKUP_KEEP", 14),
