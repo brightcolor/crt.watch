@@ -1,6 +1,9 @@
+import type net from "node:net";
 import tls from "node:tls";
+import { env } from "../config/env.js";
 import type { Monitor, TlsPolicySettings } from "../types.js";
-import { prepareStartTls } from "./starttls.js";
+import { checkLimits, onDeadline, type CheckLimits } from "./conversation.js";
+import { prepareStartTls, type StartTlsMode } from "./starttls.js";
 import { monitorConnectOptions } from "./validation.js";
 
 type TlsVersion = "TLSv1" | "TLSv1.1" | "TLSv1.2" | "TLSv1.3";
@@ -23,10 +26,14 @@ export interface TlsSecurityFinding {
 
 const versions: TlsVersion[] = ["TLSv1", "TLSv1.1", "TLSv1.2", "TLSv1.3"];
 
-export const probeSupportedTlsVersions = async (monitor: Monitor, policy: TlsPolicySettings) => {
-  if (policy.intensiveScan === false) return [];
-  const timeoutMs = Math.min(monitor.timeoutSeconds * 1000, 3000);
-  const results = await Promise.all(versions.map(async (version) => ({ version, supported: await probeVersion(monitor, version, timeoutMs) })));
+/* Each probe waits MONITOR_TLS_PROBE_TIMEOUT_SECONDS for an answer, or the
+   monitor's timeout when that is shorter, and ends with the deadline of the
+   check like its other connections. A probe that gets no handshake counts
+   the version as unsupported. */
+export const probeSupportedTlsVersions = async (monitor: Monitor, policy: TlsPolicySettings, limits: CheckLimits = checkLimits()) => {
+  if (policy.intensiveScan === false || limits.signal.aborted) return [];
+  const timeoutMs = Math.min(monitor.timeoutSeconds, env.monitorTlsProbeTimeoutSeconds) * 1000;
+  const results = await Promise.all(versions.map(async (version) => ({ version, supported: await probeVersion(monitor, version, timeoutMs, limits) })));
   return results.filter((result) => result.supported).map((result) => result.version);
 };
 
@@ -74,20 +81,19 @@ const keyFindings = ({ keyType, keySize, namedCurve }: TlsSecurityContext) => {
 const chainFindings = (chainLength: number) =>
   chainLength <= 1 ? [{ severity: "warning" as const, message: "TLS assessment: peer did not send an intermediate certificate chain." }] : [];
 
-const probeVersion = (monitor: Monitor, version: TlsVersion, timeoutMs: number) =>
-  new Promise<boolean>(async (resolve) => {
-    let rawSocket: import("node:net").Socket | undefined;
-    let socket: tls.TLSSocket | undefined;
-    const done = (supported: boolean) => {
-      socket?.destroy();
-      rawSocket?.destroy();
-      resolve(supported);
-    };
+const probeVersion = async (monitor: Monitor, version: TlsVersion, timeoutMs: number, limits: CheckLimits) => {
+  let rawSocket: net.Socket | undefined;
+  try {
+    if (monitor.type.endsWith("_starttls")) {
+      rawSocket = (await prepareStartTls(monitor.host, monitor.port, monitor.type.split("_")[0] as StartTlsMode, timeoutMs, limits)).socket;
+    }
+  } catch {
+    return false;
+  }
+  return new Promise<boolean>((resolve) => {
+    let stopDeadline = () => {};
+    let socket: tls.TLSSocket;
     try {
-      if (monitor.type.endsWith("_starttls")) {
-        const mode = monitor.type.split("_")[0] as "smtp" | "imap" | "pop3" | "ftp";
-        rawSocket = (await prepareStartTls(monitor.host, monitor.port, mode, timeoutMs)).socket;
-      }
       socket = tls.connect({
         host: monitor.host,
         port: monitor.port,
@@ -98,12 +104,21 @@ const probeVersion = (monitor: Monitor, version: TlsVersion, timeoutMs: number) 
         maxVersion: version as tls.SecureVersion,
         ...(rawSocket ? { socket: rawSocket } : monitorConnectOptions())
       });
-      socket.once("secureConnect", () => done(true));
-      socket.once("error", () => done(false));
-      socket.once("timeout", () => done(false));
     } catch {
-      done(false);
+      rawSocket?.destroy();
+      return resolve(false);
     }
+    const done = (supported: boolean) => {
+      stopDeadline();
+      socket.destroy();
+      rawSocket?.destroy();
+      resolve(supported);
+    };
+    stopDeadline = onDeadline(limits, () => done(false));
+    socket.once("secureConnect", () => done(true));
+    socket.on("error", () => done(false));
+    socket.once("timeout", () => done(false));
   });
+};
 
 const versionRank = (version: string) => ({ TLSv1: 1, "TLSv1.1": 2, "TLSv1.2": 3, "TLSv1.3": 4 }[version] ?? 0);
