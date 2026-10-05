@@ -57,6 +57,17 @@ describe("notification target addresses", () => {
     for (const address of internal) expect(isPublicAddress(address), address).toBe(false);
   });
 
+  it("treats the IPv6 forms that carry an internal IPv4 address, and the remaining special-purpose ranges, as internal", () => {
+    const internal = [
+      "2002:7f00:1::1", "2002:a00:5::1", "2002:a9fe:a9fe::1", "2002:c0a8:101::1", "::127.0.0.1", "::7f00:1", "::ffff:0:7f00:1",
+      "2001::1", "2001:0:4136:e378::1", "2001:2::1", "2001:1ff::1", "3fff::1", "5f00::1", "100:0:0:1::1"
+    ];
+    for (const address of internal) expect(isPublicAddress(address), address).toBe(false);
+    for (const address of ["2001:4860:4860::8888", "2a00:1450:4001::1", "2002:808:808::1", "64:ff9b::101:101"]) {
+      expect(isPublicAddress(address), address).toBe(true);
+    }
+  });
+
   it("treats public addresses as public", () => {
     for (const address of ["8.8.8.8", "1.1.1.1", "172.32.0.1", "192.169.0.1", "2606:4700:4700::1111", "::ffff:8.8.8.8", "64:ff9b::808:808"]) {
       expect(isPublicAddress(address), address).toBe(true);

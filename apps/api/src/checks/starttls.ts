@@ -1,4 +1,5 @@
 import net from "node:net";
+import { monitorConnectOptions } from "./validation.js";
 
 export interface StartTlsReady {
   socket: net.Socket;
@@ -6,7 +7,7 @@ export interface StartTlsReady {
 }
 
 export const prepareStartTls = async (host: string, port: number, mode: "smtp" | "imap" | "pop3" | "ftp", timeoutMs: number) => {
-  const socket = net.connect({ host, port });
+  const socket = net.connect({ host, port, ...monitorConnectOptions() });
   socket.setTimeout(timeoutMs);
   const reader = new LineReader(socket);
 
@@ -135,5 +136,11 @@ const smtpFinal = (lines: string[], code: number) => {
   return lines.some((line) => line.startsWith(`${prefix} `)) || (lines.length === 1 && lines[0].startsWith(prefix) && !lines[0].startsWith(`${prefix}-`));
 };
 
+// A tagged IMAP completion: the tag, a space, then OK, NO or BAD as a whole word, in any case.
+const imapCompletion = /^(OK|NO|BAD)\b/i;
+
 const taggedImapDone = (lines: string[], tag: string) =>
-  lines.some((line) => new RegExp(`^${tag} (OK|NO|BAD)\\b`, "i").test(line));
+  lines.some((line) => {
+    const prefix = `${tag} `;
+    return line.slice(0, prefix.length).toLowerCase() === prefix.toLowerCase() && imapCompletion.test(line.slice(prefix.length));
+  });

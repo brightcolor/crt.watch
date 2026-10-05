@@ -4,9 +4,10 @@ import { Client } from "ssh2";
 import type { CheckResult, Monitor, TlsPolicySettings } from "../types.js";
 import { id } from "../utils/id.js";
 import { nowIso } from "../utils/time.js";
+import { monitorHttpSettings, requestMonitorUrl, type MonitorHttpRequest } from "./httpTarget.js";
 import { runSecureServiceCheck } from "./serviceSecurity.js";
 import { runTlsCheck } from "./tlsChecker.js";
-import { assertPublicResolution } from "./validation.js";
+import { assertAllowedTarget, monitorConnectOptions } from "./validation.js";
 
 export const isServiceMonitor = (type: string) => ["http", "tcp", "dns", "http_login", "ssh", "ftp", "smtp", "imap", "pop3"].includes(type);
 
@@ -39,10 +40,13 @@ const checkHttpWithOptionalTls = async (monitor: Monitor, started: number, previ
   }
 };
 
+// Every connection of a check passes the monitor target policy; see validation.ts.
+const connectTarget = (monitor: Monitor) => net.connect({ host: monitor.host, port: monitor.port, ...monitorConnectOptions() });
+
 const checkTcp = async (monitor: Monitor) => {
-  await assertPublicResolution(monitor.host);
+  await assertAllowedTarget(monitor.host);
   await new Promise<void>((resolve, reject) => {
-    const socket = net.connect({ host: monitor.host, port: monitor.port });
+    const socket = connectTarget(monitor);
     socket.setTimeout(monitor.timeoutSeconds * 1000);
     socket.once("connect", () => {
       socket.destroy();
@@ -67,7 +71,7 @@ const checkDns = async (monitor: Monitor) => {
 };
 
 const checkBannerProtocol = async (monitor: Monitor) => {
-  await assertPublicResolution(monitor.host);
+  await assertAllowedTarget(monitor.host);
   const banner = await readBanner(monitor);
   const expected = expectedBanner(monitor.type);
   if (!expected.test(banner)) throw new Error(`${monitor.type.toUpperCase()} banner was unexpected: ${banner || "empty response"}.`);
@@ -80,7 +84,7 @@ const checkBannerProtocol = async (monitor: Monitor) => {
 };
 
 const checkSshLogin = async (monitor: Monitor) => {
-  await assertPublicResolution(monitor.host);
+  await assertAllowedTarget(monitor.host);
   await new Promise<void>((resolve, reject) => {
     const client = new Client();
     const timer = setTimeout(() => {
@@ -96,9 +100,9 @@ const checkSshLogin = async (monitor: Monitor) => {
       clearTimeout(timer);
       reject(new Error(`SSH login failed: ${error.message}`));
     });
+    // ssh2 talks over the guarded connection instead of opening its own.
     client.connect({
-      host: monitor.host,
-      port: monitor.port,
+      sock: connectTarget(monitor),
       username: credential(monitor, "username"),
       password: credential(monitor, "password"),
       readyTimeout: monitor.timeoutSeconds * 1000
@@ -109,7 +113,7 @@ const checkSshLogin = async (monitor: Monitor) => {
 
 const readBanner = (monitor: Monitor) =>
   new Promise<string>((resolve, reject) => {
-    const socket = net.connect({ host: monitor.host, port: monitor.port });
+    const socket = connectTarget(monitor);
     let buffer = "";
     const finish = (value: string) => {
       socket.destroy();
@@ -150,26 +154,38 @@ const bannerComplete = (type: string, buffer: string) => {
 };
 
 const checkHttp = async (monitor: Monitor) => {
-  await assertPublicResolution(monitor.host);
+  await assertAllowedTarget(monitor.host);
   const url = buildUrl(monitor);
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), monitor.timeoutSeconds * 1000);
-  try {
-    const redirect = monitor.config.followRedirects ? "follow" : "manual";
-    const response = monitor.type === "http_login" ? await loginRequest(url, monitor, controller.signal) : await fetch(url, { signal: controller.signal, redirect });
-    const expectedStatus = Number(monitor.config.expectedStatus ?? 200);
-    if (response.status !== expectedStatus) throw new Error(`HTTP status ${response.status}, expected ${expectedStatus}.`);
-    const expectedText = String(monitor.config.expectedText ?? "");
-    if (expectedText) {
-      const body = await response.text();
-      if (!body.includes(expectedText)) throw new Error("HTTP response did not contain expected text.");
-    }
-    const expectedHeader = parseExpectedHeader(String(monitor.config.expectedHeader ?? ""));
-    if (expectedHeader && !response.headers.get(expectedHeader.name)?.includes(expectedHeader.value)) throw new Error(`HTTP header ${expectedHeader.name} did not contain expected value.`);
-    return `${url} returned HTTP ${response.status}.`;
-  } finally {
-    clearTimeout(timeout);
+  const expectedText = String(monitor.config.expectedText ?? "");
+  const settings = monitorHttpSettings(monitor);
+  const response = await requestMonitorUrl({ url, ...httpRequestOf(monitor), readBody: Boolean(expectedText) }, settings);
+  const expectedStatus = Number(monitor.config.expectedStatus ?? 200);
+  if (response.status !== expectedStatus) throw new Error(`HTTP status ${response.status}, expected ${expectedStatus}.`);
+  if (expectedText && !response.body.includes(expectedText)) {
+    throw new Error(response.bodyTruncated
+      ? `HTTP response did not contain the expected text within its first ${settings.bodyLimitBytes / 1024} KB. Check the expected text, or ask the operator to raise MONITOR_HTTP_BODY_LIMIT_KB.`
+      : "HTTP response did not contain expected text.");
   }
+  const expectedHeader = parseExpectedHeader(String(monitor.config.expectedHeader ?? ""));
+  if (expectedHeader && !response.header(expectedHeader.name)?.includes(expectedHeader.value)) throw new Error(`HTTP header ${expectedHeader.name} did not contain expected value.`);
+  return `${url} returned HTTP ${response.status}.`;
+};
+
+/* The request of an HTTP monitor. Basic authentication follows redirects and
+   drops the credentials when one leads to another origin; a form login posts
+   once and reports the redirect it gets as the answer. */
+const httpRequestOf = (monitor: Monitor): Omit<MonitorHttpRequest, "url" | "readBody"> => {
+  if (monitor.type !== "http_login") return { method: "GET", headers: {}, followRedirects: Boolean(monitor.config.followRedirects) };
+  const username = String(monitor.config.username ?? "");
+  const password = String(monitor.config.password ?? "");
+  if (monitor.config.authType === "basic") {
+    return { method: "GET", headers: { authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` }, followRedirects: true };
+  }
+  const body = new URLSearchParams({
+    [String(monitor.config.usernameField ?? "username")]: username,
+    [String(monitor.config.passwordField ?? "password")]: password
+  }).toString();
+  return { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body, followRedirects: false };
 };
 
 const parseExpectedHeader = (value: string) => {
@@ -230,19 +246,6 @@ const pop3Login = async (reader: TextProtocolReader, monitor: Monitor) => {
   reader.write(`PASS ${credential(monitor, "password")}`);
   const passResponse = await reader.readUntil((line) => /^(\+OK|-ERR)/i.test(line));
   if (!/^\+OK/i.test(passResponse)) throw new Error("POP3 login failed.");
-};
-
-const loginRequest = (url: string, monitor: Monitor, signal: AbortSignal) => {
-  const username = String(monitor.config.username ?? "");
-  const password = String(monitor.config.password ?? "");
-  if (monitor.config.authType === "basic") {
-    return fetch(url, { signal, headers: { Authorization: `Basic ${Buffer.from(`${username}:${password}`).toString("base64")}` } });
-  }
-  const body = new URLSearchParams({
-    [String(monitor.config.usernameField ?? "username")]: username,
-    [String(monitor.config.passwordField ?? "password")]: password
-  });
-  return fetch(url, { method: "POST", signal, body, headers: { "content-type": "application/x-www-form-urlencoded" }, redirect: "manual" });
 };
 
 class TextProtocolReader {
@@ -308,7 +311,7 @@ class TextProtocolReader {
 
 const openTextConnection = (monitor: Monitor) =>
   new Promise<TextProtocolReader>((resolve, reject) => {
-    const socket = net.connect({ host: monitor.host, port: monitor.port });
+    const socket = connectTarget(monitor);
     socket.setTimeout(monitor.timeoutSeconds * 1000);
     socket.once("connect", () => resolve(new TextProtocolReader(socket, monitor.type)));
     socket.once("error", reject);
