@@ -1,13 +1,13 @@
 import fs from "node:fs";
-import path from "node:path";
 import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 import { env } from "../config/env.js";
 import type { ApiToken, AuditLogEntry, CheckResult, Incident, Monitor, NotificationChannel, NotificationDelivery, StatusSubscription, Team, TeamMembership, Tenant, TenantInvite, TenantMembership, User, UserAlertSettings } from "../types.js";
 import { DEFAULT_TENANT_ID } from "../types.js";
 import { decryptConfigSecrets } from "../utils/secrets.js";
+import { assertWritableDataDirectory } from "./dataDirectory.js";
 
-fs.mkdirSync(path.dirname(env.databasePath), { recursive: true });
+assertWritableDataDirectory(env.databasePath);
 const sqlite = new Database(env.databasePath);
 sqlite.pragma("journal_mode = WAL");
 sqlite.pragma("synchronous = NORMAL");

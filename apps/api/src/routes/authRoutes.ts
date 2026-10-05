@@ -6,11 +6,14 @@ import { clearSessionCookie, publicUser, requireAuth, setSessionCookie } from ".
 import { authenticateLocal, createUserSession } from "../auth/passport.js";
 import { createMfaChallenge, randomToken, verifyMfaChallenge } from "../auth/tokens.js";
 import { env } from "../config/env.js";
+import { authLimiter, mfaAccountLimiter } from "../security/rateLimits.js";
 import { appSettings, teams, tenantInvites, tenants, users } from "../storage/repositories.js";
 import { decryptSecret, encryptSecret } from "../utils/secrets.js";
 import { buildOtpAuthUrl, generateTotpSecret, verifyTotp } from "../utils/totp.js";
 
 export const authRoutes = Router();
+
+const invalidCode = "The code is not valid. Enter the current 6-digit code from your authenticator app or an unused backup code.";
 
 authRoutes.get("/setup-status", (_req, res) => {
   res.json({ setupRequired: users.count() === 0 });
@@ -24,7 +27,7 @@ authRoutes.get("/config", (_req, res) => {
   });
 });
 
-authRoutes.post("/setup", async (req, res) => {
+authRoutes.post("/setup", authLimiter, async (req, res) => {
   if (users.count() > 0) return res.status(409).json({ error: "Setup has already been completed." });
   const body = z.object({
     email: z.string().email(),
@@ -40,7 +43,7 @@ authRoutes.post("/setup", async (req, res) => {
   res.status(201).json(withMemberships(publicUser(user), session.csrfToken, user.id));
 });
 
-authRoutes.post("/register", async (req, res) => {
+authRoutes.post("/register", authLimiter, async (req, res) => {
   const parsed = registerSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid registration payload." });
 
@@ -63,9 +66,9 @@ authRoutes.post("/register", async (req, res) => {
   res.status(201).json(withMemberships(publicUser(user), session.csrfToken, user.id));
 });
 
-authRoutes.post("/login", async (req, res) => {
+authRoutes.post("/login", authLimiter, async (req, res) => {
   const body = z.object({ email: z.string().email(), password: z.string().min(1) }).safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: "Invalid credentials payload." });
+  if (!body.success) return res.status(400).json({ error: "Enter a valid email address and your password." });
   const user = await authenticateLocal(req);
   if (!user) return res.status(401).json({ error: "Invalid email or password." });
   if (user.mfaEnabled) return res.json({ mfaRequired: true, mfaToken: createMfaChallenge(user.id) });
@@ -74,9 +77,9 @@ authRoutes.post("/login", async (req, res) => {
   res.json(withMemberships(publicUser(user), session.csrfToken, user.id));
 });
 
-authRoutes.post("/mfa/verify-login", async (req, res) => {
+authRoutes.post("/mfa/verify-login", authLimiter, mfaAccountLimiter, async (req, res) => {
   const body = z.object({ mfaToken: z.string().min(1), code: z.string().min(1) }).safeParse(req.body);
-  if (!body.success) return res.status(400).json({ error: "Invalid verification payload." });
+  if (!body.success) return res.status(400).json({ error: "Enter the 6-digit code from your authenticator app or one of your backup codes." });
   const userId = verifyMfaChallenge(body.data.mfaToken);
   if (!userId) return res.status(401).json({ error: "The verification code has expired. Sign in again." });
   const user = users.findById(userId);
@@ -84,29 +87,35 @@ authRoutes.post("/mfa/verify-login", async (req, res) => {
   const secret = decryptSecret(users.getMfaSecret(user.id));
   const normalizedCode = body.data.code.trim();
   const valid = verifyTotp(secret, normalizedCode) || users.consumeMfaBackupCode(user.id, hashBackupCode(normalizedCode));
-  if (!valid) return res.status(401).json({ error: "Invalid authentication code." });
+  if (!valid) return res.status(401).json({ error: invalidCode });
   const session = createUserSession(user.id);
   setSessionCookie(res, session.token);
   res.json(withMemberships(publicUser(user), session.csrfToken, user.id));
 });
 
-authRoutes.post("/mfa/setup", requireAuth, (req, res) => {
+authRoutes.post("/mfa/setup", requireAuth, authLimiter, (req, res) => {
+  // A new secret replaces the active one and switches the second factor off
+  // until it is confirmed, so an active setup is only left through /mfa/disable,
+  // which asks for the password.
+  if (req.user!.mfaEnabled) {
+    return res.status(409).json({ error: "Two-factor authentication is already active. To set it up again, first disable it with your current password." });
+  }
   const secret = generateTotpSecret();
   users.setPendingMfaSecret(req.user!.id, encryptSecret(secret));
   res.json({ secret, otpauthUrl: buildOtpAuthUrl("crt.watch", req.user!.email, secret) });
 });
 
-authRoutes.post("/mfa/enable", requireAuth, (req, res) => {
+authRoutes.post("/mfa/enable", requireAuth, authLimiter, (req, res) => {
   const body = z.object({ code: z.string().min(1) }).safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: "A verification code is required." });
   const secret = decryptSecret(users.getMfaSecret(req.user!.id));
-  if (!secret || !verifyTotp(secret, body.data.code.trim())) return res.status(400).json({ error: "Invalid authentication code." });
+  if (!secret || !verifyTotp(secret, body.data.code.trim())) return res.status(400).json({ error: "The code is not valid. Enter the current 6-digit code your authenticator app shows for crt.watch." });
   const backupCodes = Array.from({ length: 8 }, generateBackupCode);
   users.enableMfa(req.user!.id, backupCodes.map(hashBackupCode));
   res.json({ ok: true, backupCodes });
 });
 
-authRoutes.post("/mfa/disable", requireAuth, async (req, res) => {
+authRoutes.post("/mfa/disable", requireAuth, authLimiter, async (req, res) => {
   const body = z.object({ password: z.string().min(1) }).safeParse(req.body);
   if (!body.success) return res.status(400).json({ error: "Current password is required." });
   const user = users.findById(req.user!.id);
@@ -120,7 +129,7 @@ authRoutes.post("/logout", requireAuth, (req, res) => {
   res.json({ ok: true });
 });
 
-authRoutes.post("/change-password", requireAuth, async (req, res) => {
+authRoutes.post("/change-password", requireAuth, authLimiter, async (req, res) => {
   const parsed = z.object({
     currentPassword: z.string().min(1),
     newPassword: z.string().min(12, "Password must be at least 12 characters long.")

@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { z } from "zod";
-import { createBackup, backupPath, deleteBackup, listBackups } from "../backup/backupService.js";
+import { createBackup, deleteBackup, findBackupPath, listBackups } from "../backup/backupService.js";
 import { createPlainApiToken, hashToken, requireAdmin, requireTenantRole } from "../auth/auth.js";
 import { discoverMonitors } from "../checks/discovery.js";
 import { buildManualSslLabsResult, normalizeSslLabsHost, runManualSslLabsAssessment } from "../checks/sslLabsManual.js";
@@ -101,15 +101,25 @@ opsRoutes.post("/discovery/import", requireTenantRole("owner", "admin", "member"
   res.status(errors.length ? 207 : 201).json({ imported: created.length, skipped: skipped.length, errors, monitors: created });
 });
 
-opsRoutes.get("/backups", (_req, res) => res.json(listBackups()));
-opsRoutes.post("/backups/run", requireTenantRole("owner", "admin"), (req, res) => {
+// A backup file is a copy of the whole database, with every organization, user
+// and stored secret in it, so only platform administrators may list, create,
+// download or delete backup files.
+const backupNotFound = "Backup not found. Reload the list; the file may have been removed by the retention setting.";
+
+opsRoutes.get("/backups", requireAdmin, (_req, res) => res.json(listBackups()));
+opsRoutes.post("/backups/run", requireAdmin, requireTenantRole("owner", "admin"), (req, res) => {
   const settings = appSettings.backups(req.currentTenant!.id);
   const backup = createBackup(settings);
   appSettings.set("backups", { ...settings, lastRunAt: new Date().toISOString() }, req.currentTenant!.id);
   res.status(201).json(backup);
 });
-opsRoutes.get("/backups/:name", (req, res) => res.download(backupPath(req.params.name)));
-opsRoutes.delete("/backups/:name", (req, res) => {
+opsRoutes.get("/backups/:name", requireAdmin, (req, res) => {
+  const file = findBackupPath(req.params.name);
+  if (!file) return res.status(404).json({ error: backupNotFound });
+  res.download(file);
+});
+opsRoutes.delete("/backups/:name", requireAdmin, (req, res) => {
+  if (!findBackupPath(req.params.name)) return res.status(404).json({ error: backupNotFound });
   deleteBackup(req.params.name);
   res.status(204).end();
 });

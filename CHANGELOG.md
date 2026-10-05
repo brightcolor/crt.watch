@@ -1,5 +1,22 @@
 # Changelog
 
+## Unreleased
+
+Security hardening from the code scanning and dependency findings. Two entries need a step on upgrade; they are marked.
+
+- **Upgrade step:** the container runs as the unprivileged user `node` (uid 1000, gid 1000). Data written by older images belongs to root, so hand the data directory over once with `sudo chown -R 1000:1000 data` before the new image starts, also on installations that Watchtower updates. Running the quickstart script again does this. If the directory is not writable, the server stops at start with a message that names the directory and the command.
+- **Upgrade step:** webhook and chat notifications reach public addresses only. The check runs on the address each connection actually uses, after DNS resolution and for every redirect, so a channel URL or a status page webhook subscription can no longer reach loopback, private or link-local addresses, including the cloud metadata endpoint. Notifications to a service on the local network need `NOTIFICATION_ALLOWED_NETWORKS` (single addresses or networks) or `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true`. `NOTIFICATION_MAX_REDIRECTS` (default 3) and `NOTIFICATION_TIMEOUT_SECONDS` (default 10) bound each delivery, and a redirect to another origin drops the `Authorization` header.
+- A failed channel test answers with its reason: 400 for a refused target, 502 for a failed delivery. Before, the rejected promise was left unhandled by Express 4.
+- Requests are limited per client address, 1200 per 60 seconds by default (`RATE_LIMIT_MAX_REQUESTS`, `RATE_LIMIT_WINDOW_SECONDS`; 0 switches the limit off). Failed sign-in, registration, setup, password and two-factor attempts are limited to 10 per 15 minutes (`AUTH_RATE_LIMIT_MAX_ATTEMPTS`, `AUTH_RATE_LIMIT_WINDOW_MINUTES`), and two-factor codes are also counted per account, so changing addresses buys no extra guesses. A limited client gets the wait time in the message and in `Retry-After`.
+- Every response carries a Content Security Policy: scripts, styles and fonts come from the server itself, images also from `CONTENT_SECURITY_POLICY_IMAGE_SOURCES` (default `self data: https:` for status page logos). `CONTENT_SECURITY_POLICY=report-only` turns blocking into console reports for diagnosis. The server-rendered front page hands its boot configuration over as a JSON data block, so the page runs without inline script.
+- Database backup files can be listed, created, downloaded and deleted by platform administrators only, because each file holds the whole database with every organization. An unknown backup name answers 404 with an explanation.
+- Starting a two-factor setup while two-factor authentication is active is refused. The new secret used to replace the active one at once, which switched the second factor off without the password that `/mfa/disable` asks for.
+- TLS login checks send service credentials only after the certificate passes the monitor's own trust rules: a chain the system trusts for the host name, or a certificate the operator accepted for that monitor by allowing self-signed certificates or switching off chain validation. Before, the password went out before the certificate was evaluated. A skipped login is reported as a problem of the check.
+- nodemailer 10.0.9 replaces 9.1.1 and closes GHSA-v53p-9fqp-m79j, GHSA-prgh-xp8r-p3m5 and GHSA-g57g-f23g-4646. `npm audit --omit=dev` reports no findings.
+- Stored secrets are decrypted with an explicit 16-byte GCM tag length, and shorter values are refused.
+- The bearer token is read from the `Authorization` header with a pattern that matches in linear time.
+- New settings are validated at start. An invalid value stops the start with a message that names the variable, the accepted range and the default.
+
 ## 0.21.0 - 2026-09-28
 
 Every entry below names something that was measured on the running application, not read off the source.

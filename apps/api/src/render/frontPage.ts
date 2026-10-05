@@ -45,7 +45,12 @@ export const loadFrontPageRenderer = async (webDist: string) => {
   }
 };
 
-const escapeForScript = (value: string) => JSON.stringify(value).replace(/</g, "\\u003c");
+/* The configuration travels as a JSON data block. The browser never executes
+   it, so it passes the Content Security Policy without an inline-script
+   exception; the client reads it by id. Escaping "<" keeps a value from closing
+   the element early. */
+export const bootConfigScript = (config: BootConfig) =>
+  `<script type="application/json" id="crtwatch-boot">${JSON.stringify(config).replace(/</g, "\\u003c")}</script>`;
 
 /* Returns the page with the front page already in it, or null when this request
    should get the plain shell: a signed-in visitor, a disabled front page, or a
@@ -67,9 +72,8 @@ export const renderFrontPageDocument = (hasSession: boolean): string | null => {
     const markup = renderer(config);
     // The client reads this instead of waiting for /auth/config, so its first
     // render matches the markup it is hydrating.
-    const boot = `<script>window.__CRTWATCH_BOOT__=JSON.parse(${escapeForScript(JSON.stringify(config))})</script>`;
     return shell
-      .replace('<div id="root"></div>', `<div id="root">${markup}</div>${boot}`);
+      .replace('<div id="root"></div>', `<div id="root">${markup}</div>${bootConfigScript(config)}`);
   } catch (error) {
     console.error("front page render failed:", error);
     return null;

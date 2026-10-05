@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { apiTokens, sessions, teamMemberships, teams, tenants, users } from "../storage/repositories.js";
 import type { ApiToken, Team, TeamMembership, TeamRole, Tenant, TenantMembership, TenantRole, User as AppUser } from "../types.js";
 import { createUserSession } from "./passport.js";
-import { randomToken } from "./tokens.js";
+import { bearerToken, randomToken } from "./tokens.js";
 
 declare global {
   namespace Express {
@@ -34,7 +34,7 @@ export const createImpersonationSession = (targetUserId: string, impersonatorUse
 };
 
 export const attachSession = (req: Request, _res: Response, next: NextFunction) => {
-  const bearer = req.get("authorization")?.match(/^Bearer\s+(.+)$/i)?.[1];
+  const bearer = bearerToken(req.get("authorization"));
   if (bearer) {
     const apiToken = apiTokens.findByHash(hashToken(bearer));
     const user = apiToken ? users.findById(apiToken.userId) : null;
@@ -105,7 +105,7 @@ export const requireTeamRole = (...roles: TeamRole[]) => (req: Request, res: Res
 };
 
 export const requireAdmin = (req: Request, res: Response, next: NextFunction) => {
-  if (req.user?.role !== "super_admin" && req.user?.role !== "admin") return res.status(403).json({ error: "Admin role required." });
+  if (req.user?.role !== "super_admin" && req.user?.role !== "admin") return res.status(403).json({ error: "Only platform administrators can do this. Ask an administrator of this crt.watch instance." });
   next();
 };
 
