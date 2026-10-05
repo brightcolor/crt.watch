@@ -5,10 +5,21 @@ import type { Monitor } from "../types.js";
 
 export const monitorTypes = ["https", "tls", "smtps", "imaps", "pop3s", "ldaps", "ftps", "xmpps", "smtp_starttls", "imap_starttls", "pop3_starttls", "ftp_starttls", "http", "tcp", "dns", "http_login", "ssh", "ftp", "smtp", "imap", "pop3"] as const;
 
+// A value the check refuses becomes a validation issue with the check's message,
+// so safeParse reports it and the request is answered with 400 and the reason.
+const checkedBy = <T, R>(validate: (value: T) => R) => (value: T, context: z.RefinementCtx) => {
+  try {
+    return validate(value);
+  } catch (error) {
+    context.addIssue({ code: z.ZodIssueCode.custom, message: error instanceof Error ? error.message : String(error) });
+    return z.NEVER;
+  }
+};
+
 export const monitorInputSchema = z.object({
   name: z.string().trim().min(1).max(120),
-  host: z.string().transform(validateHost),
-  port: z.number().int().transform(validatePort),
+  host: z.string().transform(checkedBy(validateHost)),
+  port: z.number().int().transform(checkedBy(validatePort)),
   type: z.enum(monitorTypes),
   enabled: z.boolean().default(true),
   intervalSeconds: z.number().int().min(60).max(2_592_000).default(env.defaultIntervalSeconds),

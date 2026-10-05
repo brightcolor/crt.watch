@@ -5,7 +5,7 @@ import type { CheckResult, Monitor, TlsPolicySettings } from "../types.js";
 import { id } from "../utils/id.js";
 import { nowIso } from "../utils/time.js";
 import { classifyResult } from "./status.js";
-import { assertPublicResolution } from "./validation.js";
+import { assertAllowedTarget, monitorConnectOptions } from "./validation.js";
 import { prepareStartTls } from "./starttls.js";
 import { gradeTls } from "./tlsGrade.js";
 import { checkTlsLogin, tlsLoginEnabled, tlsLoginProtocol, tlsLoginSuccessMessage } from "./tlsLogin.js";
@@ -15,7 +15,7 @@ export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string
   const started = Date.now();
   let connection: { socket: tls.TLSSocket; authorized: boolean } | undefined;
   try {
-    await assertPublicResolution(monitor.host);
+    await assertAllowedTarget(monitor.host);
     connection = await openTlsConnection(monitor);
     const cert = connection.socket.getPeerCertificate(true) as PeerCertificate;
     const x509 = cert.raw ? new X509Certificate(cert.raw) : null;
@@ -100,7 +100,7 @@ const openTlsConnection = (monitor: Monitor) =>
         const mode = monitor.type.split("_")[0] as "smtp" | "imap" | "pop3" | "ftp";
         rawSocket = (await prepareStartTls(monitor.host, monitor.port, mode, timeoutMs)).socket;
       }
-      const socket = rawSocket ? tls.connect({ ...options, socket: rawSocket }) : tls.connect(options);
+      const socket = rawSocket ? tls.connect({ ...options, socket: rawSocket }) : tls.connect({ ...options, ...monitorConnectOptions() });
       socket.once("secureConnect", () => resolve({ socket, authorized: socket.authorized }));
       socket.once("error", reject);
       socket.once("timeout", () => reject(new Error("TLS check timed out.")));

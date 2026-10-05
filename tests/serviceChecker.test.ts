@@ -1,12 +1,24 @@
 import http from "node:http";
 import net from "node:net";
-import { afterEach, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { runServiceCheck } from "../apps/api/src/checks/serviceChecker.js";
+import { env } from "../apps/api/src/config/env.js";
 import type { Monitor } from "../apps/api/src/types.js";
 import { metricsHandler } from "../apps/api/src/routes/metrics.js";
 import { migrate } from "../apps/api/src/storage/db.js";
+import { parseNetworkList } from "../apps/api/src/utils/networks.js";
 
 const servers: Array<http.Server | net.Server> = [];
+
+// The test services listen on 127.0.0.1, which monitors may not reach by
+// default; the list opens it, as MONITOR_ALLOWED_NETWORKS=127.0.0.1 would.
+const defaultNetworks = env.monitorAllowedNetworks;
+beforeAll(() => {
+  env.monitorAllowedNetworks = parseNetworkList("127.0.0.1", "MONITOR_ALLOWED_NETWORKS");
+});
+afterAll(() => {
+  env.monitorAllowedNetworks = defaultNetworks;
+});
 
 describe("service checks", () => {
   afterEach(async () => {

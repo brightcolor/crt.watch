@@ -51,7 +51,7 @@ app.get("*", pageHandler(webDist));
 // The reference ties the answer to its entry in the server log.
 app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const reference = randomUUID().slice(0, 8);
-  console.error(`Request failed (reference ${reference}):`, err);
+  console.error("Request failed (reference %s):", reference, err);
   res.status(500).json({ error: `crt.watch could not complete this request because of an error on the server. Try again; if it keeps failing, ask the operator to look up reference ${reference} in the server log.` });
 });
 

@@ -246,6 +246,8 @@ crt.watch can monitor certificate-focused targets and general service availabili
 - Explicit TLS upgrade checks are available for SMTP, IMAP, POP3, and FTP.
 - External SSL Labs assessments are an optional extra for public HTTPS hosts on port `443`. SSL Labs does not replace the local TLS/STARTTLS checks and is not used for private hosts, SMTP, IMAP, POP3, FTP, or arbitrary STARTTLS ports.
 
+Checks reach public addresses only, with the same address check as notifications: a monitor's host is checked when the monitor is saved and before every check, and every connection a check opens, including each redirect of an HTTP check, uses only addresses that pass. Loopback, private, link-local, carrier-grade NAT, multicast and reserved ranges are refused, also in their IPv4-mapped, NAT64 and 6to4 forms. To monitor hosts in your own network, list their addresses or networks in `MONITOR_ALLOWED_NETWORKS`, or allow every internal target with `ALLOW_PRIVATE_TARGETS=true` on an instance where every user who can create monitors is trusted. HTTP checks follow at most `MONITOR_MAX_REDIRECTS` redirects within the monitor's timeout and look for the expected text in the first `MONITOR_HTTP_BODY_LIMIT_KB` of the response. See [Security Settings](#security-settings).
+
 Keep `SESSION_SECRET` stable after first deployment. It is used to decrypt stored service-login passwords and provider secrets.
 Monitor JSON exports mask stored secrets and are suitable for moving monitor definitions, not for full secret-bearing backups.
 
@@ -265,7 +267,7 @@ The Test button of a channel sends a real message with the stored settings, so i
 
 ## REST API
 
-All API routes require login session authentication except `/api/auth/login`.
+API routes need a signed-in session or an API token in the `Authorization: Bearer` header; sign-in, registration, the first-run setup, `/api/auth/config` and `/api/health` are open. Requests that change something send their body as JSON (`Content-Type: application/json`). With the session cookie they also send the session's CSRF token in the `X-CSRF-Token` header, which `/api/auth/me` returns; requests with an API token need no CSRF token.
 
 - `GET /api/monitors`
 - `POST /api/monitors`
@@ -473,6 +475,10 @@ These environment variables control the protections added in the security harden
 | `METRICS_ACCESS` | `authenticated` | `authenticated` lets `/metrics` answer `METRICS_TOKEN`, a signed-in session or a crt.watch API token. `public` answers everyone with every organization's monitors. |
 | `METRICS_TOKEN` | empty | Bearer token for the operator's Prometheus, at least 32 characters without spaces, for example from `openssl rand -hex 32`. It sees the monitors of every organization. Empty, only signed-in members and API tokens read `/metrics`. |
 | `PASSWORD_MIN_LENGTH` | `12` | Shortest password accepted for every account: setup, registration, user management and password changes (8 to 128). |
+| `ALLOW_PRIVATE_TARGETS` | `false` | `true` lets monitors check loopback, private and link-local addresses. Use it only where every user who can create monitors is trusted. |
+| `MONITOR_ALLOWED_NETWORKS` | empty | Internal addresses or networks that monitors may check even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
+| `MONITOR_MAX_REDIRECTS` | `20` | Redirects that an HTTP monitor follows when it follows redirects or logs in with basic authentication (0 to 20). Every redirect target is checked like the monitor's host. |
+| `MONITOR_HTTP_BODY_LIMIT_KB` | `1024` | Kilobytes of an HTTP response that a check reads to find the expected text (1 to 65536). |
 | `ALLOW_PRIVATE_NOTIFICATION_TARGETS` | `false` | `true` lets webhook, chat and email notifications reach loopback, private and link-local addresses, including SMTP servers. Use it only where every user who can configure channels and SMTP settings is trusted. |
 | `NOTIFICATION_ALLOWED_NETWORKS` | empty | Internal addresses or networks that notifications, including SMTP servers, may reach even though internal targets are blocked, separated by commas, for example `192.168.10.5, 10.20.0.0/16`. |
 | `NOTIFICATION_MAX_REDIRECTS` | `3` | Redirects a notification request follows (0 to 10). Every redirect target is checked like the original URL. |
@@ -526,12 +532,23 @@ Existing installations keep their administrator, so no setup screen appears. Che
 4. Email: an SMTP host on an internal address (Docker host, mail container, LAN relay) is refused like an internal webhook. Add its address or network to `NOTIFICATION_ALLOWED_NETWORKS`, then use the Test button of an email channel.
 5. Default organization: an account joins it once, at the first start of this version, and only when it belongs to no organization at all. Open Organizations, select the default organization and remove members that do not belong there.
 
+### Upgrading to checked monitor targets
+
+Check these points before or right after the update, also on installations that Watchtower updates:
+
+1. Monitors: while `ALLOW_PRIVATE_TARGETS` is off, monitors reach public addresses only. The check covers every special-purpose range, every connection of a check and every redirect of an HTTP check. A monitor whose host lies in a Docker network, the LAN, a VPN with carrier-grade NAT addresses (`100.64.0.0/10`) or another internal range reports "points to a private, loopback or link-local address" and is down. List such hosts or networks in `MONITOR_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_TARGETS=true` on an instance where every user who can create monitors is trusted. Monitors that are already down with an address or HTTP connection error send one alert with the new wording of their message.
+2. `ALLOW_PRIVATE_TARGETS` accepts `true` and `false` (also `1`, `0`, `yes`, `no`, `on`, `off`). Any other value stops the start with a message that names the variable.
+3. Scripts that sign in or change something without an API token send their body as JSON (`Content-Type: application/json`), and with a session also the `X-CSRF-Token` header. Scripts with an API token keep working as before.
+4. HTTP monitors read up to `MONITOR_HTTP_BODY_LIMIT_KB` (1024 KB) of a response for the expected text and follow up to `MONITOR_MAX_REDIRECTS` (20) redirects. They send the user agent `crt.watch`.
+
 ## Troubleshooting
 
 - Login fails on a fresh install: every page leads to the setup screen; create the first admin user there with the setup code from `docker compose exec crt-watch node apps/api/dist/cli.js setup-code`. For an existing install, reset the password in the SQLite database or recreate the bind-mounted data directory if no data must be kept.
 - The setup answers "The setup code is not valid": the code changes at every start, so take it from the log of the current start or print it again with the command above.
 - Creating a user fails: make sure the current account has the Admin role, the email address is not already used, and the password has at least `PASSWORD_MIN_LENGTH` characters (12 by default).
-- Checks fail for private hosts: set `ALLOW_PRIVATE_TARGETS=true` if the instance is intentionally allowed to monitor internal networks.
+- A check reports "Monitor target … points to a private, loopback or link-local address": add the address or network of the host to `MONITOR_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_TARGETS=true` if every user who can create monitors is trusted.
+- An HTTP check reports "did not contain the expected text within its first … KB": check the expected text, or raise `MONITOR_HTTP_BODY_LIMIT_KB` when the text sits further down in a large page.
+- A change answers 403 "did not carry the security token of your session": reload the page and try again; scripts use an API token in the `Authorization` header. A sign-in from a script answers 415 "accepts this request as JSON only": send the body as JSON.
 - Notifications to a service on the local network fail with "is a private, loopback or link-local address", or email fails with "SMTP server … is a private, loopback or link-local address": add the address of the service or mail relay to `NOTIFICATION_ALLOWED_NETWORKS`, or set `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` if every user who can configure channels and SMTP settings is trusted.
 - Prometheus gets 401 from `/metrics`: set `METRICS_TOKEN` and send it as bearer token, as described in [Prometheus](#prometheus).
 - A public status page or badge answers 404 or `unknown`: publish a status page with those labels in Operations; only published monitors are public.

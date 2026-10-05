@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Request, Response } from "express";
 import { setupPath, setupRequired } from "../auth/setup.js";
 import { env } from "../config/env.js";
@@ -27,14 +26,16 @@ const isAuthPath = (value: string) => value === "/login" || value === "/register
 
 export const setupClosedPage = "The setup of this crt.watch instance is complete. Sign in at /login.";
 
+// The page shell is the index.html of the browser build; root keeps sendFile inside webDist.
+const sendShell = (res: Response, webDist: string) => res.sendFile("index.html", { root: webDist });
+
 export const pageHandler = (webDist: string, frontPageEnabled = env.frontPageEnabled) => (req: Request, res: Response) => {
   const signedIn = Boolean(req.user);
   const requestPath = req.path.replace(/\/+$/, "") || "/";
-  const shell = path.join(webDist, "index.html");
 
   if (setupRequired()) {
     if (requestPath !== setupPath) return res.redirect(302, setupPath);
-    return res.sendFile(shell);
+    return sendShell(res, webDist);
   }
   if (requestPath === setupPath) return res.status(404).type("text/plain").send(setupClosedPage);
 
@@ -52,5 +53,5 @@ export const pageHandler = (webDist: string, frontPageEnabled = env.frontPageEna
     if (document) return res.type("html").send(document);
   }
 
-  res.sendFile(shell);
+  sendShell(res, webDist);
 };
