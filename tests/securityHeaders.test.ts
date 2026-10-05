@@ -60,9 +60,14 @@ describe("front page boot configuration", () => {
   });
 
   it("cannot be closed early by a value", () => {
-    const script = bootConfigScript({ setupRequired: false, frontPageEnabled: true, publicRegistrationEnabled: "</script><script>alert(1)</script>" as unknown as boolean });
+    const opening = '<script type="application/json" id="crtwatch-boot">';
+    const closing = "</script>";
+    const value = "</script><script>alert(1)</script>";
+    const script = bootConfigScript({ setupRequired: false, frontPageEnabled: true, publicRegistrationEnabled: value as unknown as boolean });
+    const json = script.slice(opening.length, script.length - closing.length);
 
-    expect(script.match(/<\/script>/g)).toHaveLength(1);
-    expect(JSON.parse(script.replace(/^<script[^>]*>/, "").replace(/<\/script>$/, "")).publicRegistrationEnabled).toBe("</script><script>alert(1)</script>");
+    expect(script.startsWith(opening) && script.endsWith(closing)).toBe(true);
+    expect(json).not.toContain("<");
+    expect(JSON.parse(json).publicRegistrationEnabled).toBe(value);
   });
 });
