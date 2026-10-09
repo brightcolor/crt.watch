@@ -3,7 +3,8 @@ import type { CheckResult, Monitor, NotificationChannel, NotificationRoute, Seve
 import { alerts, appSettings, deliveries, results as checkResults, userAlerts } from "../storage/repositories.js";
 import { alertFingerprint } from "../checks/status.js";
 import { isInMaintenance } from "../checks/maintenance.js";
-import { isPublished, subscriptionPagePath } from "../status/publication.js";
+import { isPublished, subscriptionPage, subscriptionPagePath } from "../status/publication.js";
+import { publicMonitor, type PublicMonitor } from "../routes/publicStatusPage.js";
 import { mailTransport, postNotification, type DeliveryRequest } from "./delivery.js";
 
 export const dispatchAlerts = async (monitor: Monitor, result: CheckResult, configured: NotificationChannel[]) => {
@@ -93,21 +94,35 @@ export const buildPayload = (monitor: Monitor, result: CheckResult) => ({
   url: `${env.baseUrl}/monitors/${monitor.id}`
 });
 
+/* Subscribers get the monitor as the page they subscribed on shows it, the same
+   as the page's JSON: host and port only while that page shows host names, and
+   none when the page no longer exists. */
 const sendStatusSubscription = async (subscription: StatusSubscription, monitor: Monitor, result: CheckResult, event: "opened" | "resolved") => {
-  const payload = {
-    ...buildPayload(monitor, result),
-    event,
-    status_page: `${env.baseUrl}${subscriptionPagePath(subscription)}`
-  };
+  const page = subscriptionPage(subscription);
+  const shown = publicMonitor({ ...monitor, lastStatus: result.status }, result, { hideHostnames: page ? Boolean(page.hideHostnames) : true });
+  const payload = subscriberPayload(shown, result, event, `${env.baseUrl}${subscriptionPagePath(subscription)}`);
   if (subscription.type === "webhook") return postJson(subscription.target, payload);
   const smtp = appSettings.smtp(monitor.tenantId);
   await mailTransport(smtp).sendMail({
     from: smtp.from || "crt.watch@localhost",
     to: subscription.target,
-    subject: `[crt.watch Status] ${event === "resolved" ? "Resolved" : "Incident"}: ${monitor.name}`,
-    text: `${monitor.name}: ${result.message}\n\nStatus: ${result.status}\nChecked at: ${result.checkedAt}\nStatus page: ${payload.status_page}\n`
+    subject: `[crt.watch Status] ${event === "resolved" ? "Resolved" : "Incident"}: ${shown.name}`,
+    text: `${shown.name}: ${shown.message}\n\nStatus: ${shown.status}\nChecked at: ${shown.checkedAt}\nStatus page: ${payload.status_page}\n`
   });
 };
+
+const subscriberPayload = (shown: PublicMonitor, result: CheckResult, event: "opened" | "resolved", statusPage: string) => ({
+  event,
+  monitor_id: shown.id,
+  monitor_name: shown.name,
+  ...(shown.host === undefined ? {} : { host: shown.host, port: shown.port }),
+  status: shown.status.toLowerCase(),
+  severity: result.severity,
+  message: shown.message,
+  days_remaining: shown.daysRemaining,
+  checked_at: shown.checkedAt,
+  status_page: statusPage
+});
 
 const sendToChannels = async (monitor: Monitor, result: CheckResult, configured: NotificationChannel[]) => {
   const selected = selectedAlertTargets(monitor, result, appSettings.notificationRoutes(monitor.tenantId), userAlerts.list(monitor.tenantId), configured.map((channel) => channel.id));

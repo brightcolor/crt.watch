@@ -1,6 +1,7 @@
 import { Router } from "express";
-import { channels, incidents, monitors, results, subscriptions, tenants } from "../storage/repositories.js";
+import { channels, incidents, monitors, results, subscriptions } from "../storage/repositories.js";
 import { monitorInputSchema } from "./monitorSchemas.js";
+import { monitorLimitReached, monitorQuota } from "./monitorQuota.js";
 import { dispatchAlerts, dispatchStatusSubscriptions } from "../notifications/service.js";
 import type { Monitor } from "../types.js";
 import { redactConfigSecrets } from "../utils/secrets.js";
@@ -17,7 +18,8 @@ monitorRoutes.get("/", (req, res) => {
 monitorRoutes.post("/", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const parsed = monitorInputSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid monitor." });
-  if (!monitorQuotaAvailable(req.currentTenant!.id)) return res.status(402).json({ error: "Organization monitor limit reached." });
+  const quota = monitorQuota(req.currentTenant!.id);
+  if (quota.left < 1) return res.status(402).json({ error: monitorLimitReached(quota) });
   const monitor = monitors.create({ ...parsed.data, tenantId: req.currentTenant!.id });
   res.status(201).json(publicMonitor(monitor));
 });
@@ -25,20 +27,22 @@ monitorRoutes.post("/", requireTenantRole("owner", "admin", "member"), (req, res
 monitorRoutes.post("/:id/clone", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const source = monitors.get(req.params.id, req.currentTenant!.id);
   if (!source) return res.status(404).json({ error: "Monitor not found." });
-  if (!monitorQuotaAvailable(req.currentTenant!.id)) return res.status(402).json({ error: "Organization monitor limit reached." });
+  const quota = monitorQuota(req.currentTenant!.id);
+  if (quota.left < 1) return res.status(402).json({ error: monitorLimitReached(quota) });
   const monitor = monitors.create(cloneMonitor(source, req.currentTenant!.id));
   res.status(201).json(publicMonitor(monitor));
 });
 
 monitorRoutes.post("/bulk", requireTenantRole("owner", "admin", "member"), (req, res) => {
   const lines = String(req.body?.text ?? "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const quota = monitorQuota(req.currentTenant!.id);
   const created = [];
   const errors = [];
   for (const line of lines) {
     const parsedLine = parseBulkLine(line);
     const parsed = monitorInputSchema.safeParse(parsedLine);
-    if (parsed.success && monitorQuotaAvailable(req.currentTenant!.id, created.length)) created.push(publicMonitor(monitors.create({ ...parsed.data, tenantId: req.currentTenant!.id })));
-    else if (parsed.success) errors.push({ line, error: "Organization monitor limit reached." });
+    if (parsed.success && created.length < quota.left) created.push(publicMonitor(monitors.create({ ...parsed.data, tenantId: req.currentTenant!.id })));
+    else if (parsed.success) errors.push({ line, error: monitorLimitReached(quota) });
     else errors.push({ line, error: parsed.error.issues[0]?.message ?? "Invalid monitor." });
   }
   res.status(errors.length ? 207 : 201).json({ imported: created.length, errors, monitors: created });
@@ -156,8 +160,3 @@ const mergeMaskedSecrets = (previous: Record<string, unknown>, next: Record<stri
     key,
     value === "********" ? previous?.[key] : value
   ]));
-
-const monitorQuotaAvailable = (tenantId: string, pending = 0) => {
-  const tenant = tenants.get(tenantId);
-  return !tenant || tenant.monitorLimit <= 0 || monitors.list(tenantId).length + pending < tenant.monitorLimit;
-};

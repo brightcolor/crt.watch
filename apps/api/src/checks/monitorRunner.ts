@@ -12,7 +12,7 @@ export const runMonitorCheck = async (monitor: Monitor, previous?: CheckResult) 
   const checked = isServiceMonitor(monitor.type)
     ? await runServiceCheck(monitor, previous?.fingerprintSha256, tlsPolicy)
     : await runTlsCheck(monitor, previous?.fingerprintSha256, tlsPolicy);
-  const sslLabs = await enrichWithSslLabs(monitor, checked, previous, appSettings.sslLabs(monitor.tenantId), results.latestSslLabsForHost(monitor.host));
+  const sslLabs = await enrichWithSslLabs(monitor, checked, previous, appSettings.sslLabs(monitor.tenantId), results.latestSslLabsForHost(monitor.host, monitor.tenantId));
   const dns = await enrichWithDnsResolution(monitor, sslLabs, previous);
   const alerting = appSettings.alerting(monitor.tenantId);
   const watched = applyResultWatches(dns, previous, alerting, monitor, tlsPolicy);

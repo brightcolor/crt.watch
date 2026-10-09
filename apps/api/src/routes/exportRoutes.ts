@@ -2,6 +2,7 @@ import { Router } from "express";
 import { requireTenantRole } from "../auth/auth.js";
 import { appSettings, channels, monitors, results } from "../storage/repositories.js";
 import { statusPageConflict, statusPagesSchema } from "../status/publication.js";
+import { monitorQuota, monitorsBeyondLimit } from "./monitorQuota.js";
 import { defaultsFor, monitorInputSchema } from "./monitorSchemas.js";
 import type { ChannelType, Monitor, NotificationChannel, StatusPageSettings } from "../types.js";
 import { id } from "../utils/id.js";
@@ -14,14 +15,13 @@ exportRoutes.get("/monitors.json", (req, res) => {
   res.attachment("crtwatch-monitors.json").json({ monitors: monitors.list(req.currentTenant!.id).map(publicMonitor) });
 });
 
-// Importing creates monitors, so it needs the role that creates them one by one.
+// Importing creates monitors, so it needs the role that creates them one by one,
+// and the file's monitors are checked against the monitor limit before the first one is created.
 exportRoutes.post("/monitors.json", requireTenantRole("owner", "admin", "member"), (req, res) => {
-  const input = Array.isArray(req.body?.monitors) ? req.body.monitors : [];
-  const created = [];
-  for (const item of input) {
-    const parsed = monitorInputSchema.safeParse(defaultsFor(item));
-    if (parsed.success) created.push(publicMonitor(monitors.create({ ...parsed.data, tenantId: req.currentTenant!.id })));
-  }
+  const imported = validMonitors(req.body?.monitors);
+  const quota = monitorQuota(req.currentTenant!.id);
+  if (imported.length > quota.left) return res.status(402).json({ error: monitorsBeyondLimit(imported.length, quota, "import") });
+  const created = imported.map((monitor) => publicMonitor(monitors.create({ ...monitor, tenantId: req.currentTenant!.id })));
   res.status(201).json({ imported: created.length, monitors: created });
 });
 
@@ -62,6 +62,11 @@ exportRoutes.post("/restore", requireTenantRole("owner", "admin"), (req, res) =>
     statusPages = parsed.data;
   }
 
+  // The backup's monitors count against the monitor limit, so they are checked before anything is written as well.
+  const restoredMonitors = validMonitors(input.monitors);
+  const quota = monitorQuota(tenantId);
+  if (restoredMonitors.length > quota.left) return res.status(402).json({ error: monitorsBeyondLimit(restoredMonitors.length, quota, "backup") });
+
   // Channels keep their ids, so restored monitors and routes still point at them.
   // An id that belongs to a channel of another organization gets a new one, and
   // the references in this backup follow it; the other channel stays untouched.
@@ -77,13 +82,12 @@ exportRoutes.post("/restore", requireTenantRole("owner", "admin"), (req, res) =>
     if (channels.upsert({ ...channel, tenantId })) restoredChannels += 1;
   }
 
-  const created = [];
-  for (const item of Array.isArray(input.monitors) ? input.monitors : []) {
-    const parsed = monitorInputSchema.safeParse(defaultsFor(item));
-    if (!parsed.success) continue;
-    const monitor = { ...parsed.data, notificationChannelIds: renameIds(parsed.data.notificationChannelIds, renamed), notificationRecipients: renameKeys(parsed.data.notificationRecipients, renamed) };
-    created.push(publicMonitor(monitors.create({ ...monitor, tenantId })));
-  }
+  const created = restoredMonitors.map((monitor) => publicMonitor(monitors.create({
+    ...monitor,
+    notificationChannelIds: renameIds(monitor.notificationChannelIds, renamed),
+    notificationRecipients: renameKeys(monitor.notificationRecipients, renamed),
+    tenantId
+  })));
   if (input.settings?.alerting) appSettings.set("alerting", input.settings.alerting, tenantId);
   if (input.settings?.retention) appSettings.set("retention", input.settings.retention, tenantId);
   if (input.settings?.ctWatch) appSettings.set("ctWatch", input.settings.ctWatch, tenantId);
@@ -99,6 +103,12 @@ exportRoutes.post("/restore", requireTenantRole("owner", "admin"), (req, res) =>
       : route), tenantId);
   }
   res.status(201).json({ imported: created.length, restoredChannels, monitors: created });
+});
+
+/** The entries of an import or a backup that are valid monitors; the other entries are left out. */
+const validMonitors = (input: unknown) => (Array.isArray(input) ? input : []).flatMap((item) => {
+  const parsed = monitorInputSchema.safeParse(defaultsFor(item));
+  return parsed.success ? [parsed.data] : [];
 });
 
 const renameIds = <T>(ids: T, renamed: Map<string, string>): T =>

@@ -66,7 +66,7 @@ This stack keeps the application easy to self-host while still supporting real T
 - SSL Labs-style TLS security grading with a compact A-F score per TLS result, including secure service checks on the dashboard overview
 - Optional intensive TLS assessment that probes supported TLS versions and flags deprecated protocol support, weak cipher patterns, missing forward secrecy, small certificate keys, and incomplete chains
 - TLS grading explains persisted score deductions and deterioration alerts include the concrete reason for a grade drop
-- Optional external Qualys SSL Labs v4 assessments for public HTTPS hosts on port `443`, cached per host for at least 24 hours
+- Optional external Qualys SSL Labs v4 assessments for public HTTPS hosts on port `443`, cached per host within the organization for at least 24 hours
 - Manual SSL Labs trigger from Operations or eligible monitor detail pages, with the resulting grade stored in monitor history
 - Configurable notifications when a monitor's TLS grade or score deteriorates compared with the previous check
 - Flapping detection for monitors that repeatedly bounce between healthy and failed states
@@ -265,7 +265,7 @@ Routes can match labels, severity, and provider targets. Each route can also def
 
 Users can configure personal alert preferences for non-critical events in Settings. Personal preferences use the organization's verified notification providers but can set the user's own recipient target, such as an email address, chat ID, or room ID. Critical alerts intentionally ignore personal preferences and always follow the organization admin-defined monitor recipients and notification routes.
 
-Webhook payloads include monitor ID, monitor name, host, port, status, severity, message, days remaining, validity dates, issuer, SHA256 fingerprint, local TLS grade, optional SSL Labs grade, resolved addresses, DNS resolver mismatches, check time, and the monitor URL.
+Webhook payloads include monitor ID, monitor name, host, port, status, severity, message, days remaining, validity dates, issuer, SHA256 fingerprint, local TLS grade, optional SSL Labs grade, resolved addresses, DNS resolver mismatches, check time, and the monitor URL. Subscribers of public status pages receive what the page shows, see [Public Status And Badges](#public-status-and-badges).
 
 Webhook and chat notifications, including the opt-in for status page webhook subscriptions, go to public addresses only, and so does email: the SMTP host of the organization's SMTP settings or of an email channel passes the same check. crt.watch checks the address each connection actually uses, after DNS resolution and again for every redirect, and refuses loopback, private, link-local (including the cloud metadata endpoint `169.254.169.254`), carrier-grade NAT, multicast and reserved ranges. To deliver to a service in your own network, such as Gotify, ntfy, Mattermost or Matrix on a LAN address, or a mail relay on the Docker host or in your LAN, list its address or network in `NOTIFICATION_ALLOWED_NETWORKS`, or allow all internal targets with `ALLOW_PRIVATE_NOTIFICATION_TARGETS=true` on an instance where every user is trusted. See [Security Settings](#security-settings).
 
@@ -346,6 +346,8 @@ Status pages are configured in the Operations page. A page maps a public slug to
 
 Public status page subscriptions are inactive until the recipient confirms the opt-in link. Email subscriptions receive a confirmation email through the global SMTP settings. Webhook subscriptions receive a JSON opt-in payload with `confirm_url`.
 
+Incident updates carry what the status page shows. A webhook subscription receives JSON with `event` (`opened` or `resolved`), `monitor_id`, `monitor_name`, `status`, `severity`, `message`, `days_remaining`, `checked_at` and `status_page`, and with `host` and `port` while the page shows host names. An email names the monitor with its message, status and check time and links the page. A subscription follows the page it was made on, and a subscription from an earlier version the published page with its labels; when that page no longer exists, updates leave out host and port.
+
 ## Operations
 
 The Operations page contains production controls that are intentionally kept out of config files:
@@ -353,7 +355,7 @@ The Operations page contains production controls that are intentionally kept out
 - Maintenance windows for labels or individual monitors. Supported formats include `daily 22:00-23:00`, `mon-fri 01:00-02:00`, and ISO intervals such as `2026-06-01T20:00:00/2026-06-01T22:00:00`.
 - TLS policy profiles for grading, including minimum TLS version, weak cipher penalty, and SAN requirements.
 - Intensive TLS probing can be enabled in Operations. It performs additional handshakes to detect supported TLS versions and feeds those findings into the grade.
-- SSL Labs external assessment can be enabled in Operations with a registered SSL Labs API email. There is no API key field; SSL Labs v4 expects the registered organization email in the `email` header. The Operations UI can submit the one-time SSL Labs API registration for first name, last name, email, and organization, then save the email for future assessments. Operators can also trigger a manual assessment from Operations or an eligible HTTPS monitor detail page. crt.watch respects the scheduled minimum 24-hour per-host interval and lets manual triggers choose cached or fresh SSL Labs scans.
+- SSL Labs external assessment can be enabled in Operations with a registered SSL Labs API email. There is no API key field; SSL Labs v4 expects the registered organization email in the `email` header. The Operations UI can submit the one-time SSL Labs API registration for first name, last name, email, and organization, then save the email for future assessments. Operators can also trigger a manual assessment from Operations or an eligible HTTPS monitor detail page. crt.watch respects the scheduled minimum 24-hour per-host interval and lets manual triggers choose cached or fresh SSL Labs scans. A monitor reuses a recent assessment of its host from its own organization, which ran it with its own registered email and settings.
 - Alert policy can notify on TLS grade or score deterioration. The score-drop threshold controls how sensitive these alerts are.
 - Alert policy can notify on certificate changes and DNS resolution changes. Individual monitors can override both policies. DNS resolver comparisons are intentionally uncached and run fresh on each monitor check.
 - Scheduled discovery for web and mail endpoints, with direct accept buttons for individual suggestions or all suggestions.
@@ -379,10 +381,11 @@ crt.watch now has a clean organization and team layer that prepares the app for 
 - Public registration creates an isolated organization for the new user when `PUBLIC_REGISTRATION_ENABLED=true`.
 - Owners and organization admins can invite users by email with an explicit organization role. If no role is selected, invites default to `viewer`.
 - The same user can belong to several organizations with different direct roles, for example admin in one organization and viewer in another.
-- Viewers can read organization data, members can operate monitors, and owners/admins can manage settings, providers, teams, invites, and members.
+- Viewers can read organization data. Members can operate monitors: create, edit, import and check them, acknowledge incidents and add notes, and run discovery for a domain. Owners and admins can also delete monitors, manage settings, providers, status pages, teams, invites and members, test channels, restore backups and run the certificate transparency check. A refused action names the role it needs.
 - The last active organization owner and the last active team owner are protected from accidental removal or demotion.
 - Invite tokens are hashed at rest. The raw invite URL is shown when an invite is created and is not reconstructed from stored hashes later.
 - Tenants include plan, status, monitor limit, user limit, and team limit fields so billing or subscription logic can be added later.
+- The monitor limit covers every way of creating monitors: the form, cloning, the bulk, discovery and JSON imports, and restores. A JSON import or a restore with more valid monitors than the organization has room for is refused with 402 before anything is written, and the answer names the room left. Bulk and discovery imports create monitors up to the limit and list the entries beyond it with the reason. New organizations get a limit of 50 monitors, the default organization 1000; a limit of 0 means no limit.
 
 Set `GITHUB_CLIENT_ID`, `GITHUB_CLIENT_SECRET`, and optionally `GITHUB_CALLBACK_URL` to enable the prepared GitHub OAuth strategy once the UI flow is connected.
 
@@ -576,6 +579,7 @@ Check these points before or right after the update, also on installations that 
 - Prometheus gets 401 from `/metrics`: set `METRICS_TOKEN` and send it as bearer token, as described in [Prometheus](#prometheus).
 - A public status page or badge answers 404 or `unknown`: publish a status page with those labels in Operations; only published monitors are public.
 - The container stops with "cannot write to its data directory": hand the data directory to uid 1000 as described in [Upgrading to the unprivileged container](#upgrading-to-the-unprivileged-container).
+- Creating, importing or restoring monitors answers that the organization "has reached its limit" or that the import or backup holds more monitors than it has room for: delete monitors the organization no longer needs, or raise `monitor_limit` of the organization in the `tenants` table of the SQLite database (`0` means no limit).
 - Sign-in answers "Too many failed attempts": wait for the time the message names, or adjust `AUTH_RATE_LIMIT_MAX_ATTEMPTS` and `AUTH_RATE_LIMIT_WINDOW_MINUTES`. Behind a reverse proxy, check that `TRUST_PROXY` names the proxy, for example `TRUST_PROXY=loopback,uniquelocal`, so each visitor is counted by their own address.
 - Cookies fail behind HTTPS: set `COOKIE_SECURE=true` and ensure `X-Forwarded-Proto` is passed by the proxy.
 - STARTTLS fails: verify the service advertises STARTTLS and that firewalls allow the configured port.

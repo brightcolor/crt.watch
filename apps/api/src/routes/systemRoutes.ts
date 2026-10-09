@@ -210,15 +210,17 @@ systemRoutes.put("/settings/ct-watch", requireTenantRole("owner", "admin"), (req
   appSettings.set("ctWatch", parsed.data, req.currentTenant!.id);
   res.json(parsed.data);
 });
+// The check moves the CT watch's baseline to the newest crt.sh entries, so it needs the role that manages the CT watch.
 // Express 4 does not catch a rejected handler, so a failed query at crt.sh is answered here.
-systemRoutes.post("/ct-watch/check", async (req, res) => {
+systemRoutes.post("/ct-watch/check", requireTenantRole("owner", "admin"), async (req, res) => {
   try {
     res.json(await checkCtWatch(req.currentTenant!.id));
   } catch {
     res.status(502).json({ error: "crt.sh could not be reached, so the certificate transparency check did not run. Try again later; if it keeps failing, check that the crt.watch server can reach crt.sh." });
   }
 });
-systemRoutes.post("/discover", async (req, res) => {
+// Discovery suggests monitors to create, so it needs the role that creates them.
+systemRoutes.post("/discover", requireTenantRole("owner", "admin", "member"), async (req, res) => {
   const parsed = discoverSchema.safeParse(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error.issues[0]?.message ?? "Invalid discovery request." });
   res.json({ monitors: await discoverMonitors(parsed.data.domain) });

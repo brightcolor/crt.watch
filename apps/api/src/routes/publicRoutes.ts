@@ -3,7 +3,7 @@ import { incidents, monitors, results, subscriptions } from "../storage/reposito
 import { sendStatusSubscriptionOptIn } from "../notifications/service.js";
 import { NotificationTargetError } from "../notifications/delivery.js";
 import { findPublishedPage, isPublished, pageMonitors, parseLabels, subscriptionPagePath, type PublishedPage } from "../status/publication.js";
-import { publicIncident, renderPublicStatusPage, renderStatusPageNotFound, statusPageNotFoundMessage, type PublicMonitor } from "./publicStatusPage.js";
+import { publicIncident, publicMonitor, renderPublicStatusPage, renderStatusPageNotFound, statusPageNotFoundMessage } from "./publicStatusPage.js";
 import { badgeLabelFromQuery, renderStatusBadge } from "./publicBadge.js";
 import type { MonitorStatus } from "../types.js";
 import { forwardRejections } from "./errors.js";
@@ -100,15 +100,7 @@ const publicStatus = (published: PublishedPage) => {
     rollupStatus: rollup(counts),
     counts,
     summary: `${counts.OK ?? 0} OK, ${counts.WARNING ?? 0} warning, ${(counts.CRITICAL ?? 0) + (counts.DOWN ?? 0)} critical/down`,
-    monitors: selected.map((monitor): PublicMonitor => ({
-      id: monitor.id,
-      name: monitor.name,
-      ...(page.hideHostnames ? {} : { host: monitor.host, port: monitor.port }),
-      status: monitor.lastStatus,
-      checkedAt: latest[monitor.id]?.checkedAt ?? null,
-      daysRemaining: latest[monitor.id]?.daysRemaining ?? null,
-      message: latest[monitor.id]?.message ?? "No check result yet."
-    })),
+    monitors: selected.map((monitor) => publicMonitor(monitor, latest[monitor.id], page)),
     incidents: timeline
   };
 };
