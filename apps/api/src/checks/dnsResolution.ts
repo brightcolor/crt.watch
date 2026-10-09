@@ -1,7 +1,10 @@
 import dns from "node:dns/promises";
 import net from "node:net";
+import { env } from "../config/env.js";
+import { addressPolicy } from "../security/targets.js";
 import type { CheckResult, DnsResolutionSummary, DnsResolverCheck, Monitor } from "../types.js";
 import { nowIso } from "../utils/time.js";
+import { monitorTargetPolicy } from "./validation.js";
 
 const publicResolvers = [
   { name: "Cloudflare", servers: ["1.1.1.1", "1.0.0.1"] },
@@ -64,11 +67,17 @@ const systemLookup = async (host: string, timeoutMs: number) => {
 const authoritativeLookup = async (host: string, timeoutMs: number) => {
   const zone = await findAuthoritativeZone(host, timeoutMs);
   if (!zone) return { zone: null, nameservers: [], check: check("Authoritative DNS", "authoritative", [], [], "No authoritative nameservers found.") };
-  const nameserverAddresses = await resolveNameserverAddresses(zone.nameservers, timeoutMs);
-  if (!nameserverAddresses.length) return { ...zone, check: check("Authoritative DNS", "authoritative", zone.nameservers, [], "Authoritative nameserver addresses could not be resolved.") };
-  const result = await resolverLookup(host, "Authoritative DNS", "authoritative", nameserverAddresses, timeoutMs);
+  const { queried, refused } = await resolveNameserverAddresses(zone.nameservers, timeoutMs);
+  if (!queried.length) return { ...zone, check: check("Authoritative DNS", "authoritative", zone.nameservers, [], refused.length ? refusedNameservers(zone.zone, refused) : unresolvedNameservers(zone.zone)) };
+  const result = await resolverLookup(host, "Authoritative DNS", "authoritative", queried, timeoutMs);
   return { ...zone, check: { ...result, servers: zone.nameservers } };
 };
+
+const unresolvedNameservers = (zone: string) =>
+  `The addresses of the authoritative nameservers of ${zone} could not be resolved, so the comparison with authoritative DNS is skipped. Check the NS records of ${zone}.`;
+
+const refusedNameservers = (zone: string, addresses: string[]) =>
+  `The authoritative nameservers of ${zone} resolve only to private, loopback or link-local addresses (${format(addresses)}), and this crt.watch instance sends DNS queries to public addresses only, so the comparison with authoritative DNS is skipped. To include it, ask the operator of this crt.watch instance to allow these addresses with MONITOR_ALLOWED_NETWORKS or ALLOW_PRIVATE_TARGETS.`;
 
 const findAuthoritativeZone = async (host: string, timeoutMs: number) => {
   const labels = host.replace(/\.$/, "").split(".");
@@ -84,15 +93,27 @@ const findAuthoritativeZone = async (host: string, timeoutMs: number) => {
   return null;
 };
 
+/* The nameservers come from the NS records of the monitored zone. Like every
+   other address a check reaches, their addresses pass the monitor target check
+   before a query goes out, with the same settings (ALLOW_PRIVATE_TARGETS,
+   MONITOR_ALLOWED_NETWORKS; see validation.ts). The first
+   MONITOR_DNS_NAMESERVER_LIMIT nameservers are resolved, and up to
+   MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT of their addresses that pass are
+   queried. */
 const resolveNameserverAddresses = async (nameservers: string[], timeoutMs: number) => {
-  const records = await Promise.all(nameservers.slice(0, 4).map(async (server) => {
+  const records = await Promise.all(nameservers.slice(0, env.monitorDnsNameserverLimit).map(async (server) => {
     try {
       return await resolveIps(dns, server, timeoutMs);
     } catch {
       return [];
     }
   }));
-  return unique(records.flat()).slice(0, 6);
+  const allowed = addressPolicy(monitorTargetPolicy());
+  const addresses = unique(records.flat());
+  return {
+    queried: addresses.filter(allowed).slice(0, env.monitorDnsNameserverAddressLimit),
+    refused: addresses.filter((address) => !allowed(address))
+  };
 };
 
 const resolverLookup = async (host: string, name: string, kind: DnsResolverCheck["kind"], servers: string[], timeoutMs: number) => {

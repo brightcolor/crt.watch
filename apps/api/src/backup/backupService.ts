@@ -4,7 +4,7 @@ import { env } from "../config/env.js";
 import { db } from "../storage/db.js";
 import type { BackupSettings } from "../types.js";
 
-const backupDir = path.join(path.dirname(env.databasePath), "backups");
+export const backupDir = path.join(path.dirname(env.databasePath), "backups");
 const backupName = /^crtwatch-(auto-)?\d{8}-\d{6}\.sqlite$/;
 
 export const listBackups = () => {
@@ -55,14 +55,25 @@ export const deleteBackup = (name: string) => {
 
 // Checkpoint the WAL first so the copied main file contains all recent
 // commits, then copy via temp file + rename so a crash mid-copy never leaves
-// a truncated file that looks like a valid backup.
+// a truncated file that looks like a valid backup. A copy that fails is
+// removed, so a full disk keeps the space it has left, and the error goes to
+// the caller: the scheduler logs it, a request answers with its reference.
 const writeBackupFile = (name: string) => {
   fs.mkdirSync(backupDir, { recursive: true });
   db.flush();
   const target = path.join(backupDir, name);
   const tmp = `${target}.tmp`;
-  fs.copyFileSync(env.databasePath, tmp);
-  fs.renameSync(tmp, target);
+  try {
+    fs.copyFileSync(env.databasePath, tmp);
+    fs.renameSync(tmp, target);
+  } catch (error) {
+    try {
+      fs.rmSync(tmp, { force: true });
+    } catch {
+      // The error of the copy is the one to report.
+    }
+    throw error;
+  }
   return name;
 };
 

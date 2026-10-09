@@ -4,6 +4,7 @@ import { Client } from "ssh2";
 import type { CheckResult, Monitor, TlsPolicySettings } from "../types.js";
 import { id } from "../utils/id.js";
 import { nowIso } from "../utils/time.js";
+import { checkLimits, ServiceConversation, type CheckLimits } from "./conversation.js";
 import { monitorHttpSettings, requestMonitorUrl, type MonitorHttpRequest } from "./httpTarget.js";
 import { runSecureServiceCheck } from "./serviceSecurity.js";
 import { runTlsCheck } from "./tlsChecker.js";
@@ -11,24 +12,25 @@ import { assertAllowedTarget, monitorConnectOptions } from "./validation.js";
 
 export const isServiceMonitor = (type: string) => ["http", "tcp", "dns", "http_login", "ssh", "ftp", "smtp", "imap", "pop3"].includes(type);
 
-export const runServiceCheck = async (monitor: Monitor, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings): Promise<CheckResult> => {
+// The connections of one check share its limits; see checks/conversation.ts.
+export const runServiceCheck = async (monitor: Monitor, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings, limits: CheckLimits = checkLimits()): Promise<CheckResult> => {
   const started = Date.now();
   try {
-    if (monitor.type === "http" || monitor.type === "http_login") return await checkHttpWithOptionalTls(monitor, started, previousFingerprint, tlsPolicy);
-    const secureResult = await runSecureServiceCheck(monitor, previousFingerprint, tlsPolicy);
+    if (monitor.type === "http" || monitor.type === "http_login") return await checkHttpWithOptionalTls(monitor, started, previousFingerprint, tlsPolicy, limits);
+    const secureResult = await runSecureServiceCheck(monitor, previousFingerprint, tlsPolicy, limits);
     if (secureResult) return secureResult;
     if (monitor.type === "tcp") return ok(monitor, started, await checkTcp(monitor));
     if (monitor.type === "dns") return ok(monitor, started, await checkDns(monitor));
     if (monitor.type === "ssh" && loginEnabled(monitor)) return ok(monitor, started, await checkSshLogin(monitor));
-    if (["ssh", "ftp", "smtp", "imap", "pop3"].includes(monitor.type)) return ok(monitor, started, await checkBannerProtocol(monitor));
+    if (["ssh", "ftp", "smtp", "imap", "pop3"].includes(monitor.type)) return ok(monitor, started, await checkBannerProtocol(monitor, limits));
     throw new Error(`Unsupported service monitor type: ${monitor.type}`);
   } catch (error) {
     return result(monitor, "DOWN", "critical", started, error instanceof Error ? error.message : String(error));
   }
 };
 
-const checkHttpWithOptionalTls = async (monitor: Monitor, started: number, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings) => {
-  const tlsResult = httpUsesTls(monitor) ? await runTlsCheck({ ...monitor, type: "https" }, previousFingerprint, tlsPolicy) : null;
+const checkHttpWithOptionalTls = async (monitor: Monitor, started: number, previousFingerprint: string | null | undefined, tlsPolicy: TlsPolicySettings | undefined, limits: CheckLimits) => {
+  const tlsResult = httpUsesTls(monitor) ? await runTlsCheck({ ...monitor, type: "https" }, previousFingerprint, tlsPolicy, limits) : null;
   if (tlsResult?.status === "DOWN" && !tlsResult.fingerprintSha256) return tlsResult;
   try {
     const message = await checkHttp(monitor);
@@ -70,14 +72,14 @@ const checkDns = async (monitor: Monitor) => {
   return `DNS ${recordType} resolved ${flat.length} record(s).`;
 };
 
-const checkBannerProtocol = async (monitor: Monitor) => {
+const checkBannerProtocol = async (monitor: Monitor, limits: CheckLimits) => {
   await assertAllowedTarget(monitor.host);
-  const banner = await readBanner(monitor);
+  const banner = await readBanner(monitor, limits);
   const expected = expectedBanner(monitor.type);
   if (!expected.test(banner)) throw new Error(`${monitor.type.toUpperCase()} banner was unexpected: ${banner || "empty response"}.`);
   if (loginEnabled(monitor)) {
     await ensurePlainLoginAllowed(monitor);
-    await checkTextProtocolLogin(monitor);
+    await checkTextProtocolLogin(monitor, limits);
     return `${monitor.type.toUpperCase()} service responded and login succeeded.`;
   }
   return `${monitor.type.toUpperCase()} service responded: ${banner.slice(0, 120)}`;
@@ -111,31 +113,23 @@ const checkSshLogin = async (monitor: Monitor) => {
   return "SSH login succeeded.";
 };
 
-const readBanner = (monitor: Monitor) =>
-  new Promise<string>((resolve, reject) => {
-    const socket = connectTarget(monitor);
-    let buffer = "";
-    const finish = (value: string) => {
-      socket.destroy();
-      resolve(value.trim());
-    };
-    socket.setTimeout(monitor.timeoutSeconds * 1000);
-    socket.once("connect", () => {
-      if (monitor.type === "smtp") socket.write("EHLO crt.watch.local\r\n");
-      if (monitor.type === "imap") socket.write("a001 CAPABILITY\r\n");
-      if (monitor.type === "pop3") socket.write("CAPA\r\n");
-    });
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString("utf8");
-      if (bannerComplete(monitor.type, buffer)) finish(buffer);
-    });
-    socket.once("timeout", () => {
-      socket.destroy();
-      reject(new Error(`${monitor.type.toUpperCase()} check timed out.`));
-    });
-    socket.once("error", reject);
-    socket.once("end", () => finish(buffer));
+// The banner is what the service sends until it is complete or the service closes the connection.
+const readBanner = async (monitor: Monitor, limits: CheckLimits) => {
+  const socket = connectTarget(monitor);
+  socket.setTimeout(monitor.timeoutSeconds * 1000);
+  const conversation = new ServiceConversation(socket, `${monitor.type.toUpperCase()} banner check`, limits, monitor.timeoutSeconds);
+  socket.once("connect", () => {
+    if (monitor.type === "smtp") conversation.write("EHLO crt.watch.local");
+    if (monitor.type === "imap") conversation.write("a001 CAPABILITY");
+    if (monitor.type === "pop3") conversation.write("CAPA");
   });
+  try {
+    return (await conversation.readText((text) => bannerComplete(monitor.type, text))).trim();
+  } finally {
+    socket.destroy();
+    conversation.release();
+  }
+};
 
 const expectedBanner = (type: string) => ({
   ssh: /^SSH-/i,
@@ -194,132 +188,62 @@ const parseExpectedHeader = (value: string) => {
   return name?.trim() && headerValue ? { name: name.trim(), value: headerValue } : null;
 };
 
-const checkTextProtocolLogin = async (monitor: Monitor) => {
-  const reader = await openTextConnection(monitor);
+const checkTextProtocolLogin = async (monitor: Monitor, limits: CheckLimits) => {
+  const socket = connectTarget(monitor);
+  socket.setTimeout(monitor.timeoutSeconds * 1000);
+  const reader = new ServiceConversation(socket, `${monitor.type.toUpperCase()} login`, limits, monitor.timeoutSeconds);
   try {
     if (monitor.type === "ftp") await ftpLogin(reader, monitor);
     else if (monitor.type === "smtp") await smtpLogin(reader, monitor);
     else if (monitor.type === "imap") await imapLogin(reader, monitor);
     else if (monitor.type === "pop3") await pop3Login(reader, monitor);
   } finally {
-    reader.close();
+    socket.destroy();
+    reader.release();
   }
 };
 
-const ftpLogin = async (reader: TextProtocolReader, monitor: Monitor) => {
-  await reader.readUntil((line) => /^220\b/.test(line));
+const ftpLogin = async (reader: ServiceConversation, monitor: Monitor) => {
+  await reader.readLine((line) => /^220\b/.test(line));
   reader.write(`USER ${credential(monitor, "username")}`);
-  const userResponse = await reader.readUntil((line) => /^(230|331)\b/.test(line));
+  const userResponse = await reader.readLine((line) => /^(230|331)\b/.test(line));
   if (/^230\b/.test(userResponse)) return;
   reader.write(`PASS ${credential(monitor, "password")}`);
-  const passResponse = await reader.readUntil((line) => /^(\d{3})\b/.test(line));
+  const passResponse = await reader.readLine((line) => /^(\d{3})\b/.test(line));
   if (!/^230\b/.test(passResponse)) throw new Error("FTP login failed.");
 };
 
-const smtpLogin = async (reader: TextProtocolReader, monitor: Monitor) => {
-  await reader.readUntil((line) => /^220\b/.test(line));
+const smtpLogin = async (reader: ServiceConversation, monitor: Monitor) => {
+  await reader.readLine((line) => /^220\b/.test(line));
   reader.write("EHLO crt.watch.local");
-  await reader.readUntil((line) => /^250 /.test(line));
+  await reader.readLine((line) => /^250 /.test(line));
   reader.write("AUTH LOGIN");
-  const authResponse = await reader.readUntil((line) => /^(\d{3})\b/.test(line));
+  const authResponse = await reader.readLine((line) => /^(\d{3})\b/.test(line));
   if (!/^334\b/.test(authResponse)) throw new Error("SMTP AUTH LOGIN was rejected.");
   reader.write(Buffer.from(credential(monitor, "username")).toString("base64"));
-  const userResponse = await reader.readUntil((line) => /^(\d{3})\b/.test(line));
+  const userResponse = await reader.readLine((line) => /^(\d{3})\b/.test(line));
   if (!/^334\b/.test(userResponse)) throw new Error("SMTP username was rejected.");
   reader.write(Buffer.from(credential(monitor, "password")).toString("base64"));
-  const passResponse = await reader.readUntil((line) => /^(\d{3})\b/.test(line));
+  const passResponse = await reader.readLine((line) => /^(\d{3})\b/.test(line));
   if (!/^235\b/.test(passResponse)) throw new Error("SMTP login failed.");
 };
 
-const imapLogin = async (reader: TextProtocolReader, monitor: Monitor) => {
-  await reader.readUntil((line) => /^\* (OK|PREAUTH)/i.test(line));
+const imapLogin = async (reader: ServiceConversation, monitor: Monitor) => {
+  await reader.readLine((line) => /^\* (OK|PREAUTH)/i.test(line));
   reader.write(`a001 LOGIN "${escapeImap(credential(monitor, "username"))}" "${escapeImap(credential(monitor, "password"))}"`);
-  const response = await reader.readUntil((line) => /^a001 (OK|NO|BAD)\b/i.test(line));
+  const response = await reader.readLine((line) => /^a001 (OK|NO|BAD)\b/i.test(line));
   if (!/^a001 OK\b/i.test(response)) throw new Error("IMAP login failed.");
 };
 
-const pop3Login = async (reader: TextProtocolReader, monitor: Monitor) => {
-  await reader.readUntil((line) => /^\+OK/i.test(line));
+const pop3Login = async (reader: ServiceConversation, monitor: Monitor) => {
+  await reader.readLine((line) => /^\+OK/i.test(line));
   reader.write(`USER ${credential(monitor, "username")}`);
-  const userResponse = await reader.readUntil((line) => /^(\+OK|-ERR)/i.test(line));
+  const userResponse = await reader.readLine((line) => /^(\+OK|-ERR)/i.test(line));
   if (!/^\+OK/i.test(userResponse)) throw new Error("POP3 username was rejected.");
   reader.write(`PASS ${credential(monitor, "password")}`);
-  const passResponse = await reader.readUntil((line) => /^(\+OK|-ERR)/i.test(line));
+  const passResponse = await reader.readLine((line) => /^(\+OK|-ERR)/i.test(line));
   if (!/^\+OK/i.test(passResponse)) throw new Error("POP3 login failed.");
 };
-
-class TextProtocolReader {
-  private buffer = "";
-  private lines: string[] = [];
-  private waiters: Array<() => void> = [];
-  private error: Error | null = null;
-
-  constructor(private readonly socket: net.Socket, private readonly protocol: string) {
-    socket.on("data", this.onData);
-    socket.once("error", this.onError);
-    socket.once("timeout", this.onTimeout);
-    socket.once("end", this.onEnd);
-  }
-
-  write(line: string) {
-    this.socket.write(`${line}\r\n`);
-  }
-
-  close() {
-    this.socket.destroy();
-  }
-
-  async readUntil(done: (line: string) => boolean) {
-    while (true) {
-      while (this.lines.length) {
-        const line = this.lines.shift()!;
-        if (done(line)) return line;
-      }
-      if (this.error) throw this.error;
-      await new Promise<void>((resolve) => this.waiters.push(resolve));
-    }
-  }
-
-  private wake() {
-    const waiters = this.waiters.splice(0);
-    for (const waiter of waiters) waiter();
-  }
-
-  private onData = (chunk: Buffer) => {
-    this.buffer += chunk.toString("utf8");
-    const parts = this.buffer.split(/\r?\n/);
-    this.buffer = parts.pop() ?? "";
-    this.lines.push(...parts.filter(Boolean));
-    this.wake();
-  };
-
-  private onError = (error: Error) => {
-    this.error = error;
-    this.wake();
-  };
-
-  private onTimeout = () => {
-    this.error = new Error(`${this.protocol.toUpperCase()} login timed out.`);
-    this.wake();
-  };
-
-  private onEnd = () => {
-    this.error = new Error(`${this.protocol.toUpperCase()} connection closed during login.`);
-    this.wake();
-  };
-}
-
-const openTextConnection = (monitor: Monitor) =>
-  new Promise<TextProtocolReader>((resolve, reject) => {
-    const socket = connectTarget(monitor);
-    socket.setTimeout(monitor.timeoutSeconds * 1000);
-    socket.once("connect", () => resolve(new TextProtocolReader(socket, monitor.type)));
-    socket.once("error", reject);
-    socket.once("timeout", () => {
-      socket.destroy();
-      reject(new Error(`${monitor.type.toUpperCase()} login connection timed out.`));
-    });
-  });
 
 const loginEnabled = (monitor: Monitor) => Boolean(monitor.config.loginEnabled);
 const credential = (monitor: Monitor, key: "username" | "password") => String(monitor.config[key] ?? "");

@@ -41,6 +41,49 @@ describe("monitor target settings", () => {
   });
 });
 
+describe("check limit and scheduler settings", () => {
+  afterEach(() => {
+    vi.resetModules();
+  });
+
+  it("start with their defaults and read other values", async () => {
+    const defaults = await startWith({});
+    const custom = await startWith({
+      MONITOR_PROTOCOL_READ_LIMIT_KB: "8",
+      MONITOR_CHECK_DEADLINE_SECONDS: "20",
+      MONITOR_TLS_PROBE_TIMEOUT_SECONDS: "5",
+      MONITOR_DNS_NAMESERVER_LIMIT: "2",
+      MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT: "3",
+      SCHEDULER_INTERVAL_SECONDS: "120"
+    });
+    expect(defaults).toMatchObject({
+      monitorProtocolReadLimitKb: 64,
+      monitorCheckDeadlineSeconds: 60,
+      monitorTlsProbeTimeoutSeconds: 3,
+      monitorDnsNameserverLimit: 4,
+      monitorDnsNameserverAddressLimit: 6,
+      schedulerIntervalSeconds: 30
+    });
+    expect(custom).toMatchObject({
+      monitorProtocolReadLimitKb: 8,
+      monitorCheckDeadlineSeconds: 20,
+      monitorTlsProbeTimeoutSeconds: 5,
+      monitorDnsNameserverLimit: 2,
+      monitorDnsNameserverAddressLimit: 3,
+      schedulerIntervalSeconds: 120
+    });
+  });
+
+  it("stop the start with a message that names the variable, the range and the default", async () => {
+    await expect(startWith({ MONITOR_PROTOCOL_READ_LIMIT_KB: "0" })).rejects.toThrow(/MONITOR_PROTOCOL_READ_LIMIT_KB must be a whole number from 1 to 1024.*default of 64/);
+    await expect(startWith({ MONITOR_CHECK_DEADLINE_SECONDS: "601" })).rejects.toThrow(/MONITOR_CHECK_DEADLINE_SECONDS must be a whole number from 1 to 600.*default of 60/);
+    await expect(startWith({ MONITOR_TLS_PROBE_TIMEOUT_SECONDS: "1.5" })).rejects.toThrow(/MONITOR_TLS_PROBE_TIMEOUT_SECONDS must be a whole number from 1 to 120.*default of 3/);
+    await expect(startWith({ MONITOR_DNS_NAMESERVER_LIMIT: "14" })).rejects.toThrow(/MONITOR_DNS_NAMESERVER_LIMIT must be a whole number from 1 to 13.*default of 4/);
+    await expect(startWith({ MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT: "none" })).rejects.toThrow(/MONITOR_DNS_NAMESERVER_ADDRESS_LIMIT must be a whole number from 1 to 26.*default of 6/);
+    await expect(startWith({ SCHEDULER_INTERVAL_SECONDS: "4" })).rejects.toThrow(/SCHEDULER_INTERVAL_SECONDS must be a whole number from 5 to 3600.*default of 30/);
+  });
+});
+
 describe("validated settings", () => {
   it("use the default when a variable is unset or empty", () => {
     expect(integerSetting({}, "NOTIFICATION_MAX_REDIRECTS", 3, 0, 10)).toBe(3);

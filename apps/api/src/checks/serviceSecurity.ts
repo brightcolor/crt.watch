@@ -1,4 +1,5 @@
 import type { CheckResult, Monitor, TlsPolicySettings } from "../types.js";
+import { checkLimits, type CheckLimits } from "./conversation.js";
 import { runTlsCheck } from "./tlsChecker.js";
 
 export type ServiceSecurityMode = "auto" | "plain" | "starttls" | "tls";
@@ -48,15 +49,17 @@ export const serviceTransportAttempts = (monitor: Pick<Monitor, "type" | "port" 
   return monitor.port === implicitTlsPorts[monitor.type] ? available.reverse() : available;
 };
 
+// The transport attempts belong to one check and share its limits.
 export const runSecureServiceCheck = async (
   monitor: Monitor,
   previousFingerprint?: string | null,
-  tlsPolicy?: TlsPolicySettings
+  tlsPolicy?: TlsPolicySettings,
+  limits: CheckLimits = checkLimits()
 ): Promise<CheckResult | null> => {
   const attempts = serviceTransportAttempts(monitor);
   let lastResult: CheckResult | null = null;
   for (const attempt of attempts) {
-    const result = annotateTransportResult(await runTlsCheck({ ...monitor, type: attempt.type }, previousFingerprint, tlsPolicy), attempt, serviceSecurityMode(monitor) === "auto");
+    const result = annotateTransportResult(await runTlsCheck({ ...monitor, type: attempt.type }, previousFingerprint, tlsPolicy, limits), attempt, serviceSecurityMode(monitor) === "auto");
     if (isUsableSecureResult(result)) return result;
     lastResult = result;
   }

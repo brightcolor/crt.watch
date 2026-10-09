@@ -6,6 +6,7 @@ import { findPublishedPage, isPublished, pageMonitors, parseLabels, subscription
 import { publicIncident, renderPublicStatusPage, renderStatusPageNotFound, statusPageNotFoundMessage, type PublicMonitor } from "./publicStatusPage.js";
 import { badgeLabelFromQuery, renderStatusBadge } from "./publicBadge.js";
 import type { MonitorStatus } from "../types.js";
+import { forwardRejections } from "./errors.js";
 
 /* Everything here is public. What it shows comes only from status pages an
    organization has published; see status/publication.ts. An address without a
@@ -125,3 +126,6 @@ const publicSubscription = (subscription: { id: string; tags: string[]; type: st
 const wantsPage = (req: Request) => Boolean(req.accepts("html")) && !req.is("application/json");
 const rollup = (counts: Record<string, number>): MonitorStatus => (counts.DOWN || counts.CRITICAL ? "CRITICAL" : counts.WARNING ? "WARNING" : counts.PAUSED ? "PAUSED" : counts.UNKNOWN ? "UNKNOWN" : "OK");
 const subscriptionState = (value: unknown) => value === "pending" || value === "confirmed" || value === "failed" ? value : undefined;
+
+// Last, when every route above exists: a rejected promise of any handler reaches the error middleware.
+forwardRejections(publicRoutes);

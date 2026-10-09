@@ -6,6 +6,7 @@ import { monitorRoutes } from "./monitorRoutes.js";
 import { systemRoutes } from "./systemRoutes.js";
 import { exportRoutes } from "./exportRoutes.js";
 import { opsRoutes } from "./opsRoutes.js";
+import { forwardRejections } from "./errors.js";
 
 export const apiRoutes = Router();
 
@@ -19,3 +20,6 @@ apiRoutes.use("/monitors", monitorRoutes);
 apiRoutes.use("/", opsRoutes);
 apiRoutes.use("/", systemRoutes);
 apiRoutes.use("/export", exportRoutes);
+
+// Last, when every route below /api exists: a rejected promise of any handler reaches the error middleware.
+forwardRejections(apiRoutes);

@@ -1,5 +1,4 @@
 import express from "express";
-import { randomUUID } from "node:crypto";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import cookieParser from "cookie-parser";
@@ -10,6 +9,7 @@ import { configurePassport } from "./auth/passport.js";
 import { announceSetup } from "./auth/setup.js";
 import { db, migrate } from "./storage/db.js";
 import { apiRoutes } from "./routes/index.js";
+import { errorHandler } from "./routes/errors.js";
 import { publicRoutes } from "./routes/publicRoutes.js";
 import { metricsAccess, metricsHandler } from "./routes/metrics.js";
 import { startScheduler } from "./scheduler/scheduler.js";
@@ -18,6 +18,10 @@ import { pageHandler } from "./render/pages.js";
 import { securityHeaders } from "./security/headers.js";
 import { describeProxyTrust, reportIgnoredForwardedHeader } from "./security/proxy.js";
 import { requestLimiter } from "./security/rateLimits.js";
+import { reportUnhandledRejection } from "./utils/failures.js";
+
+// Requests and background work handle their own errors; this catches what slips through, and the server keeps running.
+process.on("unhandledRejection", (reason) => reportUnhandledRejection(reason));
 
 migrate();
 
@@ -48,12 +52,8 @@ app.use(express.static(webDist, { index: false }));
 // Pages of the front and of the application; while no administrator exists, every page leads to /setup.
 app.get("*", pageHandler(webDist));
 
-// The reference ties the answer to its entry in the server log.
-app.use((err: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
-  const reference = randomUUID().slice(0, 8);
-  console.error("Request failed (reference %s):", reference, err);
-  res.status(500).json({ error: `crt.watch could not complete this request because of an error on the server. Try again; if it keeps failing, ask the operator to look up reference ${reference} in the server log.` });
-});
+// Errors of every handler end here, including rejected promises of the routers' async handlers; see routes/errors.ts.
+app.use(errorHandler);
 
 await loadFrontPageRenderer(webDist);
 announceSetup(env.baseUrl);

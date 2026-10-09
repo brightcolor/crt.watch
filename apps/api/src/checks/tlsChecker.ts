@@ -1,3 +1,4 @@
+import type net from "node:net";
 import tls from "node:tls";
 import { X509Certificate } from "node:crypto";
 import type { PeerCertificate } from "node:tls";
@@ -6,17 +7,19 @@ import { id } from "../utils/id.js";
 import { nowIso } from "../utils/time.js";
 import { classifyResult } from "./status.js";
 import { assertAllowedTarget, monitorConnectOptions } from "./validation.js";
-import { prepareStartTls } from "./starttls.js";
+import { checkLimits, deadlinePassed, noAnswer, onDeadline, type CheckLimits } from "./conversation.js";
+import { prepareStartTls, type StartTlsMode } from "./starttls.js";
 import { gradeTls } from "./tlsGrade.js";
 import { checkTlsLogin, tlsLoginEnabled, tlsLoginProtocol, tlsLoginSuccessMessage } from "./tlsLogin.js";
 import { assessTlsSecurity, probeSupportedTlsVersions } from "./tlsSecurity.js";
 
-export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings): Promise<CheckResult> => {
+// The connections of one check share its limits; see checks/conversation.ts.
+export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string | null, tlsPolicy?: TlsPolicySettings, limits: CheckLimits = checkLimits()): Promise<CheckResult> => {
   const started = Date.now();
   let connection: { socket: tls.TLSSocket; authorized: boolean } | undefined;
   try {
     await assertAllowedTarget(monitor.host);
-    connection = await openTlsConnection(monitor);
+    connection = await openTlsConnection(monitor, limits);
     const cert = connection.socket.getPeerCertificate(true) as PeerCertificate;
     const x509 = cert.raw ? new X509Certificate(cert.raw) : null;
     const subjectAltNames = parseSan(x509?.subjectAltName ?? "");
@@ -28,12 +31,12 @@ export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string
     const selfSigned = Boolean(x509 && x509.subject === x509.issuer);
     const hostnameMatch = matchHostname(monitor.sniHost || monitor.host, commonName, subjectAltNames);
     const loginProblem = tlsLoginAllowed(monitor, { authorized: connection.authorized, hostnameMatch, selfSigned })
-      ? await getTlsLoginProblem(connection.socket, monitor)
+      ? await getTlsLoginProblem(connection.socket, monitor, limits)
       : tlsLoginEnabled(monitor) ? skippedTlsLoginProblem(monitor) : null;
     const chain = buildChain(cert);
     const tlsVersion = connection.socket.getProtocol();
     const cipherSuite = connection.socket.getCipher()?.name;
-    const supportedVersions = await probeSupportedTlsVersions(monitor, tlsPolicy ?? defaultTlsPolicy);
+    const supportedVersions = await probeSupportedTlsVersions(monitor, tlsPolicy ?? defaultTlsPolicy, limits);
     const assessment = assessTlsSecurity({
       tlsVersion,
       cipherSuite,
@@ -86,27 +89,54 @@ export const runTlsCheck = async (monitor: Monitor, previousFingerprint?: string
   }
 };
 
-const openTlsConnection = (monitor: Monitor) =>
-  new Promise<{ socket: tls.TLSSocket; authorized: boolean }>(async (resolve, reject) => {
+const openTlsConnection = async (monitor: Monitor, limits: CheckLimits) => {
+  const rawSocket = monitor.type.endsWith("_starttls")
+    ? (await prepareStartTls(monitor.host, monitor.port, monitor.type.split("_")[0] as StartTlsMode, monitor.timeoutSeconds * 1000, limits)).socket
+    : undefined;
+  return tlsHandshake(monitor, limits, rawSocket);
+};
+
+/* The handshake on the socket after STARTTLS, or on a connection of its own.
+   It ends at the monitor's timeout without an answer and at the deadline of
+   the check. */
+const tlsHandshake = (monitor: Monitor, limits: CheckLimits, rawSocket?: net.Socket) =>
+  new Promise<{ socket: tls.TLSSocket; authorized: boolean }>((resolve, reject) => {
     const timeoutMs = monitor.timeoutSeconds * 1000;
     const servername = monitor.sniEnabled ? monitor.sniHost || monitor.host : undefined;
     // The handshake must succeed for expired, self-signed or mismatched certificates,
     // because reporting them is the point of the check. socket.authorized carries the
     // verdict; credentials are only sent when tlsLoginAllowed accepts it.
     const options = { host: monitor.host, port: monitor.port, servername, rejectUnauthorized: false, timeout: timeoutMs };
-    let rawSocket: import("node:net").Socket | undefined;
+    let socket: tls.TLSSocket;
     try {
-      if (monitor.type.endsWith("_starttls")) {
-        const mode = monitor.type.split("_")[0] as "smtp" | "imap" | "pop3" | "ftp";
-        rawSocket = (await prepareStartTls(monitor.host, monitor.port, mode, timeoutMs)).socket;
-      }
-      const socket = rawSocket ? tls.connect({ ...options, socket: rawSocket }) : tls.connect({ ...options, ...monitorConnectOptions() });
-      socket.once("secureConnect", () => resolve({ socket, authorized: socket.authorized }));
-      socket.once("error", reject);
-      socket.once("timeout", () => reject(new Error("TLS check timed out.")));
+      socket = rawSocket ? tls.connect({ ...options, socket: rawSocket }) : tls.connect({ ...options, ...monitorConnectOptions() });
     } catch (error) {
-      reject(error);
+      rawSocket?.destroy();
+      return reject(error);
     }
+    let settled = false;
+    let stopDeadline = () => {};
+    const settle = () => {
+      settled = true;
+      stopDeadline();
+      socket.off("timeout", onTimeout);
+    };
+    const fail = (error: Error) => {
+      if (settled) return;
+      settle();
+      socket.destroy();
+      reject(error);
+    };
+    const onTimeout = () => fail(noAnswer("TLS handshake", monitor.timeoutSeconds));
+    stopDeadline = onDeadline(limits, () => fail(deadlinePassed("TLS handshake", limits)));
+    socket.once("secureConnect", () => {
+      if (settled) return;
+      settle();
+      resolve({ socket, authorized: socket.authorized });
+    });
+    // Stays as long as the socket: an error after the handshake ends the login or the check, which own the socket then.
+    socket.on("error", fail);
+    socket.on("timeout", onTimeout);
   });
 
 const makeResult = (
@@ -179,10 +209,10 @@ const buildChain = (cert: PeerCertificate) => {
   return items;
 };
 
-const getTlsLoginProblem = async (socket: tls.TLSSocket, monitor: Monitor) => {
+const getTlsLoginProblem = async (socket: tls.TLSSocket, monitor: Monitor, limits: CheckLimits) => {
   if (!tlsLoginEnabled(monitor)) return null;
   try {
-    await checkTlsLogin(socket, monitor);
+    await checkTlsLogin(socket, monitor, limits);
     return null;
   } catch (error) {
     return error instanceof Error ? error.message : String(error);
